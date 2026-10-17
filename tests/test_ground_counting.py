@@ -102,6 +102,49 @@ class GroundCountingTests(unittest.TestCase):
         self.assertTrue(server.is_breaker(bailed, [{"event": "CAPTURED"}]))
         self.assertTrue(server.is_breaker({"status": "KILLED"}, []))
 
+    def test_pilot_exit_does_not_break_streak_but_is_detected(self):
+        self.assertTrue(server.is_pilot_exit(
+            {"status": "UNKNOWN", "remarks": "PILOT EXIT"}, []
+        ))
+        self.assertTrue(server.is_pilot_exit(
+            {"status": "LANDED"}, [{"event": "PILOT EXIT"}]
+        ))
+        self.assertFalse(server.is_breaker(
+            {"status": "LANDED", "remarks": "PILOT EXIT"}, []
+        ))
+
+    def test_pilot_exit_results_are_excluded_without_splitting_streak(self):
+        def item(date, score, pilot_exit=False, breaker=False):
+            counts = {
+                "fighter": 0, "attack": 0, "bomber": 0,
+                "heavyTank": 0, "mediumTank": 0, "lightTank": 0,
+                "aa": 0, "groundedPlanes": 0, "trains": 0,
+                "artillery": 0, "vehicles": 0, "ships": 0, "otherGround": 0,
+            }
+            analysis = {
+                "flight": {"date": date, "url": "test"},
+                "scoreRaw": float(score),
+                "score": score,
+                "planes": 0,
+                "ground": 0,
+                "wounds": 0,
+                "counts": counts,
+                "victories": [],
+                "breaker": breaker,
+                "pilotExit": pilot_exit,
+            }
+            return {"analysis": analysis, "flight": analysis["flight"]}
+
+        # Newest to oldest: PILOT EXIT lies between two valid sorties.
+        result = server.calculate_modes([
+            item("2026-10-17T12:00:00", 20),
+            item("2026-10-16T12:00:00", 99, pilot_exit=True),
+            item("2026-10-15T12:00:00", 10),
+        ])
+        for mode in ("current", "best", "campaign"):
+            self.assertEqual(result[mode]["score"], 30)
+            self.assertEqual(result[mode]["sorties"], 2)
+
     def test_event_log_breaker_overrides_unhelpful_profile_status(self):
         self.assertTrue(server.is_breaker(
             {"status": "LANDED"},
