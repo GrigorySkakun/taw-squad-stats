@@ -372,6 +372,7 @@ def parse_profile(body: str, pilot_name: str) -> list[dict[str, Any]]:
                 "groundKillsOfficial": number_from_cell(row[5] if len(row) > 5 else None),
                 "aircraft": cell_text(row, 6),
                 "remarks": cell_text(row, 7),
+                "profileRowText": " ".join(cell.text for cell in row),
                 "pilot": pilot_name,
             }
             flights[url] = flight
@@ -567,7 +568,24 @@ def analyze_flight(
         "victories": victories,
         "groundEvents": ground_events,
         "breaker": is_breaker(flight, events),
+        "pilotExit": is_pilot_exit(flight, events),
     }
+
+
+def is_pilot_exit(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
+    """PILOT EXIT invalidates a sortie's statistics but does not break a streak."""
+    candidates = [
+        flight.get("status", ""),
+        flight.get("remarks", ""),
+        flight.get("profileRowText", ""),
+        flight.get("mission", ""),
+        *(value for event in events for value in event.values()),
+    ]
+    return any(
+        re.search(r"\bPILOT[\s_-]+EXIT\b", normalize(value), re.IGNORECASE)
+        for value in candidates
+        if value
+    )
 
 
 def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
@@ -582,7 +600,7 @@ def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
         event_name = normalize(event.get("event", "")).upper()
         if event_name in BREAK_STATUSES:
             return True
-        if re.search(r"\\b(?:KILLED|CAPTURED|DISCO)\\b", event_name):
+        if re.search(r"\b(?:KILLED|CAPTURED|DISCO)\b", event_name):
             return True
 
     # BAILED OUT by itself preserves a streak; CAPTURED above breaks it.
@@ -620,9 +638,12 @@ def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
     # Flights arrive newest -> oldest, exactly like TAW's public pilot page.
     all_analyzed = [x.get("analysis") for x in flights if x.get("analysis") is not None]
     all_analyzed = sorted(all_analyzed, key=lambda x: x["flight"].get("date", ""), reverse=True)
-    # A sortie that breaks a streak is excluded in every mode, including the
-    # whole-campaign view, per the user's rules.
-    counted_analyzed = [item for item in all_analyzed if not item["breaker"]]
+    # Breaker sorties and PILOT EXIT sorties contribute no statistics.
+    # PILOT EXIT is not a breaker, so it must not split a streak segment.
+    counted_analyzed = [
+        item for item in all_analyzed
+        if not item["breaker"] and not item.get("pilotExit", False)
+    ]
     campaign = summarize_flights(counted_analyzed)
     segments: list[list[dict[str, Any]]] = []
     segment: list[dict[str, Any]] = []
@@ -636,7 +657,8 @@ def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
                 first_segment = list(segment)
                 saw_first_break = True
             segment = []
-        else:
+        elif not item.get("pilotExit", False):
+            # Skip the sortie's scores without breaking the streak continuity.
             segment.append(item)
     if segment:
         segments.append(segment)
