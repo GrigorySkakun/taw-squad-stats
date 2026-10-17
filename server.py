@@ -74,6 +74,15 @@ STATUS_ALIASES = {
 }
 BREAK_STATUSES = {"KILLED", "CAPTURED", "DISCO"}
 
+# Ground-kill values on TAW are weighted: a ship contributes 10 GK, while the
+# other classified target types contribute 1 each. Unknown targets are filled
+# from the official Ground Kills total on the sortie page.
+GROUND_CATEGORY_KEYS = (
+    "heavyTank", "mediumTank", "lightTank", "aa", "groundedPlanes",
+    "trains", "artillery", "vehicles", "ships",
+)
+GROUND_KILL_WEIGHTS = {key: (10 if key == "ships" else 1) for key in GROUND_CATEGORY_KEYS}
+
 # These lists are taken from the user's existing program. The scoring formula
 # intentionally preserves its current values, including the medium-plane
 # coefficient being added twice (1 + 1.5) in the source's bally expression.
@@ -427,29 +436,58 @@ def classify_plane(plane: str) -> list[str]:
 
 
 def classify_ground(event: dict[str, str]) -> str | None:
-    obj = event.get("object", "")
-    typ = event.get("type", "")
+    """Return a recognized legacy target category, or None for unclassified targets.
+
+    Match the old application's markers against both the object name and type.
+    The AT marker is treated as a token (not an arbitrary substring), which
+    avoids misclassifying unrelated names that happen to contain the letters.
+    """
+    obj = normalize(event.get("object", ""))
+    typ = normalize(event.get("type", ""))
     combined = f"{obj} {typ}"
     upper = combined.upper()
+
     if any(x in upper for x in ("BOTGUNNER", "TURRET", "GUNNER WAS DESTROYED")):
         return None
-    if has_any(combined, HEAVY_TANKS): return "heavyTank"
-    if has_any(combined, MIDDLE_TANKS): return "mediumTank"
-    if has_any(combined, LIGHT_TANKS): return "lightTank"
-    if "STATIC_PLANE" in upper or typ.casefold() == "plane": return "groundedPlanes"
-    if typ.upper() == "AA" or re.search(r"\bAA\b", typ.upper()): return "aa"
-    if "WAGON" in upper or "TRAIN" in upper: return "trains"
-    if any(x in upper for x in ("ARTILLERY", "ARTY", " AT ")): return "artillery"
-    if "TRUCK" in upper or re.search(r"\bAPC\b", upper): return "vehicles"
-    if "SHIP" in upper: return "ships"
-    return "otherGround"
+    if has_any(combined, HEAVY_TANKS):
+        return "heavyTank"
+    if has_any(combined, MIDDLE_TANKS):
+        return "mediumTank"
+    if has_any(combined, LIGHT_TANKS):
+        return "lightTank"
+    if "STATIC_PLANE" in upper or typ.casefold() == "plane":
+        return "groundedPlanes"
+    # In the legacy program AA was recognized anywhere on the DESTROYED row,
+    # not only when the Type column was exactly "AA".
+    if "AA" in upper:
+        return "aa"
+    if "WAGON" in upper or "TRAIN" in upper:
+        return "trains"
+    if "ARTILLERY" in upper or "ARTY" in upper or re.search(r"(?<![A-Z])AT(?![A-Z])", upper):
+        return "artillery"
+    if "TRUCK" in upper or "APC" in upper:
+        return "vehicles"
+    if "SHIP" in upper:
+        return "ships"
+    return None
+
+
+def parse_ground_kills_official(body: str) -> int | None:
+    """Read the authoritative Ground Kills value shown near the top of a sortie page."""
+    plain_text = normalize(re.sub(r"<[^>]+>", " ", html.unescape(body)))
+    match = re.search(r"\bGround\s+Kills?\s*:?\s*(\d+)\b", plain_text, re.IGNORECASE)
+    return int(match.group(1)) if match else None
 
 
 def round_bally(value: float) -> int:
     return int(math.floor(value + 0.5)) if value >= 0 else int(math.ceil(value - 0.5))
 
 
-def analyze_flight(flight: dict[str, Any], events: list[dict[str, str]]) -> dict[str, Any]:
+def analyze_flight(
+    flight: dict[str, Any],
+    events: list[dict[str, str]],
+    official_ground_kills: int | None = None,
+) -> dict[str, Any]:
     counts = {k: 0 for k in ["fighter", "attack", "bomber", "heavyTank", "mediumTank", "lightTank", "aa", "groundedPlanes", "trains", "artillery", "vehicles", "ships", "otherGround"]}
     victories = []
     ground_events = []
@@ -471,10 +509,24 @@ def analyze_flight(flight: dict[str, Any], events: list[dict[str, str]]) -> dict
         if ev_name == "DESTROYED":
             cat = classify_ground(event)
             if cat:
-                counts[cat] += 1
-                ground_events.append({"object": normalize(event.get("object", "Unknown target")), "type": normalize(event.get("type", "")), "category": cat})
+                counts[cat] += GROUND_KILL_WEIGHTS[cat]
+                ground_events.append({
+                    "object": normalize(event.get("object", "Unknown target")),
+                    "type": normalize(event.get("type", "")),
+                    "category": cat,
+                })
         if "PILOT WAS DAMAGED" in ev_name and any(t in (event.get("type", "") + " " + event.get("object", "")).upper() for t in ("PLANE", "AA", "ARTY", "ARTILLERY", " AT ")):
             wounds = 1
+
+    # Prefer the sortie page's official Ground Kills number, then fall back to
+    # the same value parsed from the pilot's sortie list.
+    if official_ground_kills is None:
+        official_ground_kills = int(flight.get("groundKillsOfficial", 0) or 0)
+    official_ground_kills = max(0, int(official_ground_kills or 0))
+    classified_ground = sum(counts[key] for key in GROUND_CATEGORY_KEYS)
+    counts["otherGround"] = max(0, official_ground_kills - classified_ground)
+    ground_mismatch = classified_ground > official_ground_kills
+
     # Preserve the existing program's current scoring expression exactly:
     # lp + mp*1 + mp*1.5 + hp*2 + ground coefficients.
     score = (
@@ -493,10 +545,27 @@ def analyze_flight(flight: dict[str, Any], events: list[dict[str, str]]) -> dict
         + counts["ships"] * 1.0
         + counts["otherGround"] * 0.04
     )
-    ground_total = sum(counts[k] for k in ("heavyTank", "mediumTank", "lightTank", "aa", "groundedPlanes", "trains", "artillery", "vehicles", "ships", "otherGround"))
-    return {"flight": flight, "events": events, "scoreRaw": score, "score": round_bally(score), "counts": counts,
-            "planes": len(victories), "ground": ground_total, "wounds": wounds, "victories": victories, "groundEvents": ground_events,
-            "breaker": is_breaker(flight, events)}
+    # The total displayed for the sortie is authoritative TAW Ground Kills.
+    # When classified targets do not exceed it, "otherGround" makes the breakdown
+    # reconcile exactly. If classifications exceed the official figure, keep the
+    # official total and surface a warning rather than silently inflating the total.
+    ground_total = official_ground_kills
+    return {
+        "flight": flight,
+        "events": events,
+        "scoreRaw": score,
+        "score": round_bally(score),
+        "counts": counts,
+        "planes": len(victories),
+        "ground": ground_total,
+        "groundOfficial": official_ground_kills,
+        "groundClassified": classified_ground,
+        "groundMismatch": ground_mismatch,
+        "wounds": wounds,
+        "victories": victories,
+        "groundEvents": ground_events,
+        "breaker": is_breaker(flight, events),
+    }
 
 
 def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
@@ -539,7 +608,10 @@ def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
     # Flights arrive newest -> oldest, exactly like TAW's public pilot page.
     all_analyzed = [x.get("analysis") for x in flights if x.get("analysis") is not None]
     all_analyzed = sorted(all_analyzed, key=lambda x: x["flight"].get("date", ""), reverse=True)
-    campaign = summarize_flights(all_analyzed)
+    # A sortie that breaks a streak is excluded in every mode, including the
+    # whole-campaign view, per the user's rules.
+    counted_analyzed = [item for item in all_analyzed if not item["breaker"]]
+    campaign = summarize_flights(counted_analyzed)
     segments: list[list[dict[str, Any]]] = []
     segment: list[dict[str, Any]] = []
     first_segment: list[dict[str, Any]] = []
@@ -664,7 +736,15 @@ def build_snapshot(force: bool = False, squad_url: str | None = None):
             events = parse_event_log(page)
             if not events:
                 raise RuntimeError("Таблица событий не найдена")
-            return member["name"], analyze_flight(flight, events)
+            official_ground_kills = parse_ground_kills_official(page)
+            analysis = analyze_flight(flight, events, official_ground_kills)
+            if analysis["groundMismatch"]:
+                warnings.append(
+                    f"{member['name']}, {flight.get('date', '')}: сумма классифицированных "
+                    f"наземных целей ({analysis['groundClassified']}) выше Ground Kills TAW "
+                    f"({analysis['groundOfficial']}); проверьте классификацию."
+                )
+            return member["name"], analysis
 
         def publish_pilot(name: str):
             member = member_by_name[name]
