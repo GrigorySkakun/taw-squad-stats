@@ -457,13 +457,13 @@ def classify_ground(event: dict[str, str]) -> str | None:
         return "lightTank"
     if "STATIC_PLANE" in upper or typ.casefold() == "plane":
         return "groundedPlanes"
-    # In the legacy program AA was recognized anywhere on the DESTROYED row,
-    # not only when the Type column was exactly "AA".
-    if "AA" in upper:
+    # Mirror the legacy Contains("AA") / Contains("AT") checks against the
+    # original text, preserving their case-sensitive behavior.
+    if "AA" in combined:
         return "aa"
     if "WAGON" in upper or "TRAIN" in upper:
         return "trains"
-    if "ARTILLERY" in upper or "ARTY" in upper or re.search(r"(?<![A-Z])AT(?![A-Z])", upper):
+    if "ARTILLERY" in upper or "ARTY" in upper or "AT" in combined:
         return "artillery"
     if "TRUCK" in upper or "APC" in upper:
         return "vehicles"
