@@ -490,6 +490,11 @@ def analyze_flight(
     official_ground_kills: int | None = None,
 ) -> dict[str, Any]:
     counts = {k: 0 for k in ["fighter", "attack", "bomber", "heavyTank", "mediumTank", "lightTank", "aa", "groundedPlanes", "trains", "artillery", "vehicles", "ships", "otherGround"]}
+    # TAW's official sortie total is authoritative. If it is explicitly zero,
+    # do not surface DESTROYED events as ground targets in the dashboard.
+    if official_ground_kills is None:
+        official_ground_kills = int(flight.get("groundKillsOfficial", 0) or 0)
+    official_ground_kills = max(0, int(official_ground_kills or 0))
     victories = []
     ground_events = []
     wounds = 0
@@ -507,7 +512,7 @@ def analyze_flight(
                 "mission": flight.get("mission", ""),
                 "sortieUrl": flight["url"],
             })
-        if ev_name == "DESTROYED":
+        if ev_name == "DESTROYED" and official_ground_kills > 0:
             cat = classify_ground(event)
             if cat:
                 # Category rows display object counts (one ship = one ship).
@@ -523,9 +528,6 @@ def analyze_flight(
 
     # Prefer the sortie page's official Ground Kills number, then fall back to
     # the same value parsed from the pilot's sortie list.
-    if official_ground_kills is None:
-        official_ground_kills = int(flight.get("groundKillsOfficial", 0) or 0)
-    official_ground_kills = max(0, int(official_ground_kills or 0))
     classified_ground = sum(counts[key] * GROUND_KILL_WEIGHTS[key] for key in GROUND_CATEGORY_KEYS)
     counts["otherGround"] = max(0, official_ground_kills - classified_ground)
     ground_mismatch = classified_ground > official_ground_kills
