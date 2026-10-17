@@ -475,7 +475,7 @@ def classify_ground(event: dict[str, str]) -> str | None:
 def parse_ground_kills_official(body: str) -> int | None:
     """Read the authoritative Ground Kills value shown near the top of a sortie page."""
     plain_text = normalize(re.sub(r"<[^>]+>", " ", html.unescape(body)))
-    match = re.search(r"\bGround\s+Kills?\s*:?\s*(\d+)\b", plain_text, re.IGNORECASE)
+    match = re.search(r"\bGround\s+Kills?\s*(?:[:|]\s*)?(\d+)\b", plain_text, re.IGNORECASE)
     return int(match.group(1)) if match else None
 
 
