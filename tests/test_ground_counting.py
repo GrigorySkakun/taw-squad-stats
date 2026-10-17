@@ -44,7 +44,8 @@ class GroundCountingTests(unittest.TestCase):
 
         self.assertEqual(result["ground"], 15)
         self.assertEqual(result["counts"]["mediumTank"], 1)
-        self.assertEqual(result["counts"]["ships"], 10)
+        self.assertEqual(result["counts"]["ships"], 1)
+        self.assertAlmostEqual(result["scoreRaw"], 10.66)
         self.assertEqual(result["counts"]["otherGround"], 4)
         self.assertFalse(result["groundMismatch"])
 
@@ -100,6 +101,20 @@ class GroundCountingTests(unittest.TestCase):
         self.assertFalse(server.is_breaker(bailed, [{"event": "BAILED OUT"}]))
         self.assertTrue(server.is_breaker(bailed, [{"event": "CAPTURED"}]))
         self.assertTrue(server.is_breaker({"status": "KILLED"}, []))
+
+    def test_event_log_breaker_overrides_unhelpful_profile_status(self):
+        self.assertTrue(server.is_breaker(
+            {"status": "LANDED"},
+            [{"event": "KILLED"}],
+        ))
+        self.assertTrue(server.is_breaker(
+            {"status": "UNKNOWN"},
+            [{"event": "DISCO"}],
+        ))
+        self.assertFalse(server.is_breaker(
+            {"status": "LANDED"},
+            [{"event": "DESTROYED"}],
+        ))
 
 
 if __name__ == "__main__":

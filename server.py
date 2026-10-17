@@ -509,7 +509,9 @@ def analyze_flight(
         if ev_name == "DESTROYED":
             cat = classify_ground(event)
             if cat:
-                counts[cat] += GROUND_KILL_WEIGHTS[cat]
+                # Category rows display object counts (one ship = one ship).
+                # TAW Ground Kills and bally scoring apply the separate GK weight.
+                counts[cat] += 1
                 ground_events.append({
                     "object": normalize(event.get("object", "Unknown target")),
                     "type": normalize(event.get("type", "")),
@@ -523,7 +525,7 @@ def analyze_flight(
     if official_ground_kills is None:
         official_ground_kills = int(flight.get("groundKillsOfficial", 0) or 0)
     official_ground_kills = max(0, int(official_ground_kills or 0))
-    classified_ground = sum(counts[key] for key in GROUND_CATEGORY_KEYS)
+    classified_ground = sum(counts[key] * GROUND_KILL_WEIGHTS[key] for key in GROUND_CATEGORY_KEYS)
     counts["otherGround"] = max(0, official_ground_kills - classified_ground)
     ground_mismatch = classified_ground > official_ground_kills
 
@@ -542,7 +544,7 @@ def analyze_flight(
         + counts["trains"] * 0.07
         + counts["artillery"] * 0.06
         + counts["vehicles"] * 0.05
-        + counts["ships"] * 1.0
+        + counts["ships"] * GROUND_KILL_WEIGHTS["ships"] * 1.0
         + counts["otherGround"] * 0.04
     )
     # The total displayed for the sortie is authoritative TAW Ground Kills.
@@ -569,12 +571,22 @@ def analyze_flight(
 
 
 def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
-    status = (flight.get("status") or "").upper()
+    status = normalize(flight.get("status", "")).upper()
     if status in BREAK_STATUSES:
         return True
-    if status == "BAILED OUT":
-        return any("CAPTURED" in ev.get("event", "").upper() for ev in events)
-    # As in the old program, LANDED and a BAILED OUT without CAPTURED keep the streak.
+
+    # Do not rely only on the profile-page status icon: it can be absent or
+    # misread from the HTML. The sortie's event log is the strongest evidence
+    # that a death, capture, or disconnect ended the flight/streak.
+    for event in events:
+        event_name = normalize(event.get("event", "")).upper()
+        if event_name in BREAK_STATUSES:
+            return True
+        if re.search(r"\\b(?:KILLED|CAPTURED|DISCO)\\b", event_name):
+            return True
+
+    # BAILED OUT by itself preserves a streak; CAPTURED above breaks it.
+    # LANDED also preserves the streak.
     return False
 
 
