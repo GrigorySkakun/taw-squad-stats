@@ -580,7 +580,7 @@ def is_pilot_exit(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
         *(value for event in events for value in event.values()),
     ]
     return any(
-        re.search(r"\\bPILOT[\\s_-]+EXIT\\b", normalize(value), re.IGNORECASE)
+        re.search(r"\bPILOT[\s_-]+EXIT\b", normalize(value), re.IGNORECASE)
         for value in candidates
         if value
     )
@@ -598,7 +598,7 @@ def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
         event_name = normalize(event.get("event", "")).upper()
         if event_name in BREAK_STATUSES:
             return True
-        if re.search(r"\\b(?:KILLED|CAPTURED|DISCO)\\b", event_name):
+        if re.search(r"\b(?:KILLED|CAPTURED|DISCO)\b", event_name):
             return True
 
     # BAILED OUT by itself preserves a streak; CAPTURED above breaks it.
