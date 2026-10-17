@@ -438,9 +438,9 @@ def classify_plane(plane: str) -> list[str]:
 def classify_ground(event: dict[str, str]) -> str | None:
     """Return a recognized legacy target category, or None for unclassified targets.
 
-    Match the old application's markers against both the object name and type.
-    The AT marker is treated as a token (not an arbitrary substring), which
-    avoids misclassifying unrelated names that happen to contain the letters.
+    Match the old application's markers against the object name and type.
+    AA and AT are case-sensitive substrings to mirror the original C++ Contains()
+    checks; unrelated targets are then reconciled against TAW's official total.
     """
     obj = normalize(event.get("object", ""))
     typ = normalize(event.get("type", ""))
