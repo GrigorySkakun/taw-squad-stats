@@ -1,0 +1,5 @@
+PzKpfw V Ausf.G
+Pz.Kpfw.VI Ausf.H
+//
+KV-1-41
+KV-1-42

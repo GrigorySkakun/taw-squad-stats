@@ -1,0 +1,13 @@
+PzKpfw IV Ausf.H
+PzKpfw IV Ausf.G
+PzKpfw IV Ausf.F1
+PzKpfw III Ausf.L
+PzKpfw III Ausf.H
+StuG III Ausf.F
+StuG III Ausf.C-D
+//
+M4A2(75)
+M4A3(75)W
+//
+T-34-76 STZ 41
+T-34-76 STZ

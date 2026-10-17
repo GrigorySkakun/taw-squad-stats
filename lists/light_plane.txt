@@ -1,0 +1,49 @@
+Spitfire Mk.VB
+Spitfire Mk.IX
+Spitfire Mk.IXc
+Spitfire Mk.IXe
+Spitfire Mk.XIV
+Spitfire Mk.XIVe
+P-47D-22
+P-47D-28
+Typhoon Mk.Ib
+Tempest Mk.V ser.2
+P-51B-5
+P-51D-15
+//
+Bf 109 G-6 Late
+Bf 109 G-6AS
+Bf 109 G-14
+Bf 109 K-4
+Fw 190 A-6
+Fw 190 A-8
+Fw 190 D-9
+//
+I-16 type 24
+Hurricane Mk.II
+MiG-3 ser.24
+Yak-1 ser.69
+Yak-1B ser.127
+LaGG-3 ser.29
+Yak-7B ser.36
+Yak-9 ser.1
+Yak-9T ser.1
+La-5 ser.8
+La-5F s.38
+La-5FN s.39
+P-40E-1
+P-39L-1
+Yak-7B ser.36
+U-2VS
+//
+Bf 109 E-7
+Bf 109 F-2
+Bf 109 F-4
+Bf 109 G-2
+Bf 109 G-4
+Bf 109 G-6
+MC.202 ser.VIII
+I.A.R. 80-A
+I.A.R. 80-B
+Fw 190 A-3
+Fw 190 A-5

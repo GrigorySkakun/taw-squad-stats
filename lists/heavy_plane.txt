@@ -1,0 +1,13 @@
+Pe-2 ser.35
+Pe-2 ser.87
+Li-2
+//
+A-20B
+C-47A
+//
+Ar 234 B-2
+Ju 88 A-4
+Ju 88 C-6
+He 111 H-16
+He 111 H-6
+Ju 52 3mg4e
