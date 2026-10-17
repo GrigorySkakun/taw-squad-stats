@@ -49,6 +49,43 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(result["counts"]["otherGround"], 4)
         self.assertFalse(result["groundMismatch"])
 
+    def test_official_zero_ground_kills_suppresses_destroyed_targets(self):
+        flight = {
+            "url": "https://tacticalairwar.com/pilot_sortie.php?id=zero-ground",
+            "date": "2026-09-27T21:21:23",
+            "status": "LANDED",
+            "mission": "Test mission",
+            "groundKillsOfficial": 0,
+        }
+        events = [
+            {
+                "date": "27.09.2026 21:22:00",
+                "event": "DESTROYED",
+                "object": "PzKpfw IV Ausf.H",
+                "type": "Tank",
+                "enemy": "",
+                "damage": "",
+            },
+            {
+                "date": "27.09.2026 21:23:00",
+                "event": "DESTROYED",
+                "object": "Flak AA gun",
+                "type": "Gun",
+                "enemy": "",
+                "damage": "",
+            },
+        ]
+
+        result = server.analyze_flight(flight, events, official_ground_kills=0)
+
+        self.assertEqual(result["ground"], 0)
+        self.assertEqual(result["groundClassified"], 0)
+        self.assertEqual(result["counts"]["mediumTank"], 0)
+        self.assertEqual(result["counts"]["aa"], 0)
+        self.assertEqual(result["counts"]["otherGround"], 0)
+        self.assertEqual(result["groundEvents"], [])
+        self.assertFalse(result["groundMismatch"])
+
     def test_ground_kills_parser_accepts_common_separators(self):
         self.assertEqual(server.parse_ground_kills_official(
             "<div>Air kills: 0</div><div>Ground kills: 15</div>"
