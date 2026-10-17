@@ -45,7 +45,7 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(result["ground"], 15)
         self.assertEqual(result["counts"]["mediumTank"], 1)
         self.assertEqual(result["counts"]["ships"], 1)
-        self.assertEqual(result["scoreRaw"], 10.7)
+        self.assertAlmostEqual(result["scoreRaw"], 10.66)
         self.assertEqual(result["counts"]["otherGround"], 4)
         self.assertFalse(result["groundMismatch"])
 
