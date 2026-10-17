@@ -372,6 +372,7 @@ def parse_profile(body: str, pilot_name: str) -> list[dict[str, Any]]:
                 "groundKillsOfficial": number_from_cell(row[5] if len(row) > 5 else None),
                 "aircraft": cell_text(row, 6),
                 "remarks": cell_text(row, 7),
+                "profileRowText": " ".join(cell.text for cell in row),
                 "pilot": pilot_name,
             }
             flights[url] = flight
@@ -576,6 +577,7 @@ def is_pilot_exit(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
     candidates = [
         flight.get("status", ""),
         flight.get("remarks", ""),
+        flight.get("profileRowText", ""),
         flight.get("mission", ""),
         *(value for event in events for value in event.values()),
     ]
