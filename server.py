@@ -590,12 +590,9 @@ def is_pilot_exit(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
 
 
 def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
-    """Only exact TAW event labels break a streak; profile status is not enough."""
-    breaker_labels = {"WAS KILLED", "WAS CAPTURED", "DISCO"}
-    return any(
-        normalize(event.get("event", "")).upper() in breaker_labels
-        for event in events
-    )
+    """A sortie-list status of KILLED, CAPTURED, or DISCO ends the streak."""
+    status = normalize(flight.get("status", "")).upper()
+    return status in BREAK_STATUSES
 
 
 def empty_mode() -> dict[str, Any]:
