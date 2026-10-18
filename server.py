@@ -593,6 +593,17 @@ def analyze_flight(
     }
 
 
+def ground_mismatch_warning(member_name: str, flight: dict[str, Any], analysis: dict[str, Any]) -> str | None:
+    """Report classification mismatches only for sorties whose results count."""
+    if not analysis.get("groundMismatch") or analysis.get("pilotExit", False):
+        return None
+    return (
+        f"{member_name}, {flight.get('date', '')}: сумма классифицированных "
+        f"наземных целей ({analysis['groundClassified']}) выше Ground Kills TAW "
+        f"({analysis['groundOfficial']}); проверьте классификацию."
+    )
+
+
 def is_pilot_exit(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
     """PILOT EXIT invalidates a sortie's statistics but does not break a streak."""
     candidates = [
@@ -824,14 +835,9 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                 raise RuntimeError("Таблица событий не найдена")
             official_ground_kills = parse_ground_kills_official(page)
             analysis = analyze_flight(flight, events, official_ground_kills)
-            # PILOT EXIT sorties are excluded from credited results, so their
-            # event-log targets must not trigger a Ground Kills reconciliation warning.
-            if analysis["groundMismatch"] and not analysis.get("pilotExit", False):
-                warnings.append(
-                    f"{member['name']}, {flight.get('date', '')}: сумма классифицированных "
-                    f"наземных целей ({analysis['groundClassified']}) выше Ground Kills TAW "
-                    f"({analysis['groundOfficial']}); проверьте классификацию."
-                )
+            warning = ground_mismatch_warning(member["name"], flight, analysis)
+            if warning:
+                warnings.append(warning)
             return member["name"], analysis
 
         def audit_pilot(name: str) -> dict[str, Any]:
