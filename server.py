@@ -618,6 +618,11 @@ def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
     return status in BREAK_STATUSES
 
 
+def should_skip_sortie_page(flight: dict[str, Any]) -> bool:
+    """Do not open sortie pages whose profile-row status already invalidates the sortie."""
+    return normalize(flight.get("status", "")).upper() in BREAK_STATUSES
+
+
 def empty_mode() -> dict[str, Any]:
     return {"score": 0, "scoreRaw": 0.0, "sorties": 0, "planes": 0, "ground": 0, "wounds": 0,
             "fighter": 0, "attack": 0, "bomber": 0,
@@ -800,12 +805,31 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                      processed=0, total=total_sorties, profileTotal=len(members), profileProcessed=len(members), warnings=warnings)
 
         analyses_by_pilot: dict[str, list[dict[str, Any]]] = {m["name"]: [] for m in work_members}
-        expected_by_pilot = {m["name"]: len(filtered_profiles.get(m["name"], [])) for m in work_members}
+        expected_by_pilot = {
+            m["name"]: sum(
+                1 for flight in filtered_profiles.get(m["name"], [])
+                if not should_skip_sortie_page(flight)
+            )
+            for m in work_members
+        }
         completed_by_pilot = {m["name"]: 0 for m in work_members}
         member_by_name = {m["name"]: m for m in work_members}
         task_list: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for member in work_members:
             for flight in filtered_profiles.get(member["name"], []):
+                if should_skip_sortie_page(flight):
+                    # Keep only a zero-data marker so streak logic still breaks at
+                    # KILLED/CAPTURED/DISCO. Crucially, no URL fetch is scheduled.
+                    analyses_by_pilot[member["name"]].append({
+                        "analysis": {
+                            "flight": flight,
+                            "breaker": True,
+                            "pilotExit": False,
+                            "notRead": True,
+                        },
+                        "flight": flight,
+                    })
+                    continue
                 task_list.append((member, flight))
 
         # Pilots with no sorties during the latest detected year can be shown immediately.
@@ -838,7 +862,11 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
         def audit_pilot(name: str) -> dict[str, Any]:
             profile_flights = filtered_profiles.get(name, [])
             analyzed_items = analyses_by_pilot.get(name, [])
-            by_url = {item["analysis"]["flight"]["url"]: item["analysis"] for item in analyzed_items}
+            by_url = {
+                item["analysis"]["flight"]["url"]: item["analysis"]
+                for item in analyzed_items
+                if not item["analysis"].get("notRead", False)
+            }
             mismatches = []
             for flight in profile_flights:
                 analysis = by_url.get(flight["url"])
@@ -855,9 +883,13 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                         "loggedAirKills": logged_air,
                     })
             successful = len(by_url)
+            skipped_sorties = sum(
+                1 for flight in profile_flights if should_skip_sortie_page(flight)
+            )
             credited_analyses = [
                 item["analysis"] for item in analyzed_items
-                if not item["analysis"].get("pilotExit", False)
+                if not item["analysis"].get("notRead", False)
+                and not item["analysis"].get("pilotExit", False)
             ]
             credited_urls = {
                 analysis["flight"]["url"] for analysis in credited_analyses
@@ -865,7 +897,8 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
             return {
                 "sortiesFound": len(profile_flights),
                 "sortiesRead": successful,
-                "sortiesFailed": max(0, len(profile_flights) - successful),
+                "sortiesSkipped": skipped_sorties,
+                "sortiesFailed": max(0, len(profile_flights) - successful - skipped_sorties),
                 "profileAirKills": sum(
                     int(f.get("airKillsOfficial", 0) or 0)
                     for f in profile_flights if f.get("url") in credited_urls
