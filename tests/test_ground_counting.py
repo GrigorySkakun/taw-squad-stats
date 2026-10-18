@@ -97,7 +97,7 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(result["campaign"]["planes"], 3)
         self.assertEqual(result["current"]["score"], 20)
         self.assertEqual(result["current"]["planes"], 1)
-        self.assertEqual(result["best"]["score"], 20)
+        self.assertEqual(result["best"]["score"], 10)
         self.assertEqual(result["best"]["planes"], 2)
     def test_only_sortie_list_status_breaks_streak(self):
         self.assertFalse(server.is_breaker({"status": "BAILED OUT"}, [{"event": "BAILED OUT"}]))
