@@ -855,12 +855,22 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                         "loggedAirKills": logged_air,
                     })
             successful = len(by_url)
+            credited_analyses = [
+                item["analysis"] for item in analyzed_items
+                if not item["analysis"].get("pilotExit", False)
+            ]
+            credited_urls = {
+                analysis["flight"]["url"] for analysis in credited_analyses
+            }
             return {
                 "sortiesFound": len(profile_flights),
                 "sortiesRead": successful,
                 "sortiesFailed": max(0, len(profile_flights) - successful),
-                "profileAirKills": sum(int(f.get("airKillsOfficial", 0) or 0) for f in profile_flights),
-                "loggedAirKills": sum(int(item["analysis"].get("planes", 0) or 0) for item in analyzed_items),
+                "profileAirKills": sum(
+                    int(f.get("airKillsOfficial", 0) or 0)
+                    for f in profile_flights if f.get("url") in credited_urls
+                ),
+                "loggedAirKills": sum(int(analysis.get("planes", 0) or 0) for analysis in credited_analyses),
                 "mismatches": sorted(mismatches, key=lambda x: x.get("date", ""), reverse=True)[:50],
             }
 
