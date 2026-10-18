@@ -730,29 +730,26 @@ def build_snapshot(force: bool = False, squad_url: str | None = None):
                     warnings.append(f"{member['name']}: ошибка профиля")
                 with STATE_LOCK:
                     STATE["profileProcessed"] += 1
-        years = []
-        for flights in profile_results.values():
-            for flight in flights:
-                dt = datetime.fromisoformat(flight["date"])
-                years.append(dt.year)
-        if not years:
-            raise RuntimeError("Не удалось определить даты вылетов в профилях TAW; расчёт кампании невозможен.")
-        season_year = max(years)
-        filtered_profiles: dict[str, list[dict[str, Any]]] = {}
-        for member in members:
-            name = member["name"]
-            filtered_profiles[name] = [f for f in profile_results.get(name, []) if datetime.fromisoformat(f["date"]).year == season_year]
-        total_sorties = sum(len(v) for v in filtered_profiles.values())
-        update_state(phase="sorties", message=f"Загружаю журналы вылетов за {season_year} год…", campaignYear=season_year,
+        # Use every distinct sortie link found on each live TAW pilot profile.
+        # A calendar year is not a reliable campaign boundary and must not discard
+        # older or newer sorties. parse_profile already de-duplicates repeated links.
+        if not any(profile_results.values()):
+            raise RuntimeError("Не удалось найти ссылки на вылеты в профилях TAW.")
+        all_profiles: dict[str, list[dict[str, Any]]] = {
+            member["name"]: profile_results.get(member["name"], [])
+            for member in members
+        }
+        total_sorties = sum(len(v) for v in all_profiles.values())
+        update_state(phase="sorties", message="Загружаю все найденные журналы вылетов TAW…", campaignYear=None,
                      processed=0, total=total_sorties, profileTotal=len(members), profileProcessed=len(members), warnings=warnings)
 
         analyses_by_pilot: dict[str, list[dict[str, Any]]] = {m["name"]: [] for m in members}
-        expected_by_pilot = {m["name"]: len(filtered_profiles.get(m["name"], [])) for m in members}
+        expected_by_pilot = {m["name"]: len(all_profiles.get(m["name"], [])) for m in members}
         completed_by_pilot = {m["name"]: 0 for m in members}
         member_by_name = {m["name"]: m for m in members}
         task_list: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for member in members:
-            for flight in filtered_profiles.get(member["name"], []):
+            for flight in all_profiles.get(member["name"], []):
                 task_list.append((member, flight))
 
         # Pilots with no sorties during the latest detected year can be shown immediately.
@@ -828,7 +825,7 @@ def build_snapshot(force: bool = False, squad_url: str | None = None):
         if failures:
             warnings.append(f"Не удалось прочитать {failures} журнал(ов). В расчётах таких вылетов данные могут быть неполными.")
         update_state(running=False, phase="complete", message="Данные TAW загружены", pilots=results,
-                     campaignYear=season_year, mapName=map_name, updatedAt=datetime.now().astimezone().isoformat(timespec="seconds"),
+                     campaignYear=None, mapName=map_name, updatedAt=datetime.now().astimezone().isoformat(timespec="seconds"),
                      warnings=warnings[:30], error=None)
     except Exception as exc:
         update_state(running=False, phase="error", message="Не удалось загрузить данные TAW", error=str(exc),
