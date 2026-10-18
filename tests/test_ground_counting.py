@@ -49,6 +49,41 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(result["counts"]["otherGround"], 4)
         self.assertFalse(result["groundMismatch"])
 
+    def test_pilot_exit_ground_targets_do_not_trigger_mismatch(self):
+        flight = {
+            "url": "https://tacticalairwar.com/pilot_sortie.php?id=pilot-exit",
+            "date": "2026-10-05T13:10:55",
+            "status": "UNKNOWN",
+            "remarks": "",
+            "mission": "Test mission",
+            "groundKillsOfficial": 0,
+        }
+        events = [
+            {
+                "date": "05.10.2026 13:11:10",
+                "event": "DESTROYED",
+                "object": "Flak 38",
+                "type": "Artillery",
+                "enemy": "",
+                "damage": "",
+            },
+            {
+                "date": "05.10.2026 13:12:00",
+                "event": "PILOT EXIT",
+                "object": "",
+                "type": "",
+                "enemy": "",
+                "damage": "",
+            },
+        ]
+
+        result = server.analyze_flight(flight, events, official_ground_kills=0)
+
+        self.assertTrue(result["pilotExit"])
+        self.assertFalse(result["groundMismatch"])
+        self.assertEqual(result["ground"], 0)
+        self.assertEqual(result["planes"], 0)
+
     def test_ground_kills_parser_accepts_common_separators(self):
         self.assertEqual(server.parse_ground_kills_official(
             "<div>Air kills: 0</div><div>Ground kills: 15</div>"
