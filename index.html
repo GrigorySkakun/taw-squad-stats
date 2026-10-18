@@ -61,6 +61,15 @@ button,input{accent-color:#566b43}
 @media(max-width:950px){.modebar .modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.modebar .mode{padding:9px 5px;font-size:12px}.squad-head-actions{flex-wrap:wrap;justify-content:flex-end}.squad-head-actions .refresh{width:auto}}
 @media(max-width:580px){.squad-head-actions{align-items:flex-end;flex-direction:column;gap:5px}.squad-head-actions .muted{white-space:normal;text-align:right}.squad-head-actions .refresh{width:100%;white-space:normal}.modebar .mode{font-size:11px}}
 
+
+.control-row{display:grid;grid-template-columns:minmax(240px,290px) minmax(0,1fr);gap:16px;align-items:stretch;margin:0 0 16px}
+.control-row .modebar{width:100%;margin:0;display:flex;align-items:stretch}
+.control-row .modebar .modes{width:100%;align-items:stretch}
+.control-row .calculate-all-button{width:100%;height:100%;min-height:48px;border-radius:4px;background:#35463a;color:#f8f2df;border:1px solid #29372e;box-shadow:inset 0 -2px #b66e37;font-weight:750;padding:10px 14px;white-space:normal}
+.control-row .calculate-all-button:hover{background:#435744}
+@media(max-width:950px){.control-row{grid-template-columns:1fr;gap:8px}.control-row .calculate-all-button{min-height:44px}.control-row .modebar .modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.control-row .modebar .mode{padding:9px 5px;font-size:12px}}
+@media(max-width:580px){.control-row .modebar .mode{font-size:11px}}
+
 </style>
 </head>
 <body><main class="shell">
@@ -69,8 +78,8 @@ button,input{accent-color:#566b43}
 <form class="urlbox" id="urlForm"><div><label for="squadUrl">Ссылка на страницу эскадрильи TAW</label><input type="url" id="squadUrl" name="squadUrl" value="https://tacticalairwar.com/squad_stats.php?name=72%20Air%20Group" placeholder="https://tacticalairwar.com/squad_stats.php?name=..." required><div class="url-help">Скопируй адрес из браузера с открытой страницей состава своего сквада. Поддерживаются страницы tacticalairwar.com/squad_stats.php.</div><label for="campaignStartDate" style="margin-top:12px">Начало кампании</label><input type="date" id="campaignStartDate" name="campaignStartDate" value="2026-09-11" required><div class="url-help">В статистику попадут только вылеты начиная с этой даты включительно.</div></div><button id="loadBtn" type="submit">Загрузить данные</button></form>
 <div id="notice" class="notice"></div><div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
 <div class="toolbar"><div class="search"><input id="search" placeholder="Найти пилота по позывному…" autocomplete="off"></div><button class="refresh" id="refreshBtn" type="button">Обновить данные</button></div>
-<div class="modebar"><div class="modes" role="tablist" aria-label="Режим статистики"><button type="button" class="mode active" data-mode="current">Текущий стрик</button><button type="button" class="mode" data-mode="best">Лучший стрик</button><button type="button" class="mode" data-mode="campaign">Вся кампания</button></div></div>
-<div class="layout"><section class="panel"><div class="panelhead"><h3>Состав эскадрильи</h3><div class="squad-head-actions"><span class="muted" id="rowcount">Нет загруженных пилотов</span><button class="refresh" id="allBtn" type="button">Посчитать всех пилотов</button></div></div><div class="tablewrap"><table><thead><tr><th>#</th><th>Пилот</th><th>Очки bally</th><th>Вылеты</th><th>Самолёты</th><th>Наземные цели</th></tr></thead><tbody id="pilots"><tr><td colspan="6" class="empty">Вставь ссылку на сквад и нажми «Загрузить данные».</td></tr></tbody></table></div></section>
+<div class="control-row"><button class="refresh calculate-all-button" id="allBtn" type="button">Посчитать всех пилотов</button><div class="modebar"><div class="modes" role="tablist" aria-label="Режим статистики"><button type="button" class="mode active" data-mode="current">Текущий стрик</button><button type="button" class="mode" data-mode="best">Лучший стрик</button><button type="button" class="mode" data-mode="campaign">Вся кампания</button></div></div></div>
+<div class="layout"><section class="panel"><div class="panelhead"><h3>Состав эскадрильи</h3><div class="squad-head-actions"><span class="muted" id="rowcount">Нет загруженных пилотов</span></div></div><div class="tablewrap"><table><thead><tr><th>#</th><th>Пилот</th><th>Очки bally</th><th>Вылеты</th><th>Самолёты</th><th>Наземные цели</th></tr></thead><tbody id="pilots"><tr><td colspan="6" class="empty">Вставь ссылку на сквад и нажми «Загрузить данные».</td></tr></tbody></table></div></section>
 <section class="panel"><div class="panelhead"><h3>Карточка пилота</h3><span class="muted" id="modeLabel">Текущий стрик</span></div><div class="detail" id="detail"><div class="empty">После загрузки данных здесь появится статистика выбранного пилота.</div></div></section></div>
 <div class="footer"><span>TAW · статистика по публичным журналам вылетов</span><span id="updatedAt">Данные ещё не загружены</span></div>
 </main><script>
