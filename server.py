@@ -703,7 +703,7 @@ def update_state(**kwargs):
         STATE.update(kwargs)
 
 
-def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_start_date: str | None = None):
+def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_start_date: str | None = None, selected_pilot: str | None = None, calculate_all: bool = True):
     warnings: list[str] = []
     squad_url = validate_squad_url(squad_url or public_state().get("squadUrl") or DEFAULT_SQUAD_URL)
     campaign_start_date = campaign_start_date or public_state().get("campaignStartDate") or "2026-09-11"
@@ -713,7 +713,7 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
         raise ValueError("Дата начала кампании должна быть в формате ГГГГ-ММ-ДД.") from exc
     try:
         update_state(running=True, phase="squad", message="Загружаю состав эскадрильи TAW…", processed=0, total=0,
-                     profileProcessed=0, profileTotal=0, error=None, warnings=[], pilots=[], campaignYear=None, mapName=None)
+                     profileProcessed=0, profileTotal=0, error=None, warnings=[], pilots=(public_state().get("pilots", []) if selected_pilot and not calculate_all else []), campaignYear=None, mapName=None)
         try:
             home_body = fetch_html(HOME_URL, force=force)
             map_name = scrape_current_map(home_body)
@@ -724,17 +724,33 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
         squad_body = fetch_html(squad_url, force=force)
         members = parse_squad_page(squad_body)
         squad_name = parse_squad_name(squad_body, squad_url)
-        update_state(squadName=squad_name, squadUrl=squad_url)
+        existing_pilots = {p.get("name"): p for p in public_state().get("pilots", [])}
+        if not calculate_all:
+            selected_member = next((m for m in members if m["name"] == selected_pilot), None)
+            if selected_member is None:
+                selected_member = members[0] if members else None
+            if selected_member is None:
+                raise RuntimeError("В составе TAW не найдено ни одного пилота.")
+            selected_pilot = selected_member["name"]
+        work_members = members if calculate_all else [m for m in members if m["name"] == selected_pilot]
+        pilot_rows = []
+        for m in members:
+            old = existing_pilots.get(m["name"])
+            if not calculate_all and m["name"] != selected_pilot and old and not old.get("loading", True):
+                pilot_rows.append(old)
+            else:
+                pilot_rows.append({
+                    "name": m["name"], "official": m["official"], "profileUrl": m["profileUrl"],
+                    "current": None, "best": None, "campaign": None, "loading": True
+                })
+        update_state(squadName=squad_name, squadUrl=squad_url, selectedPilot=selected_pilot)
         update_state(phase="profiles", message=f"Читаю страницы пилотов; кампания с {start_date.strftime('%d.%m.%Y')}…",
-                     profileTotal=len(members), profileProcessed=0, mapName=map_name, squadName=squad_name, squadUrl=squad_url, pilots=[{
-                         "name": m["name"], "official": m["official"], "profileUrl": m["profileUrl"],
-                         "current": None, "best": None, "campaign": None, "loading": True
-                     } for m in members])
+                     profileTotal=len(work_members), profileProcessed=0, mapName=map_name, squadName=squad_name, squadUrl=squad_url, pilots=pilot_rows)
 
         profile_results: dict[str, list[dict[str, Any]]] = {}
         profile_errors: dict[str, str] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futs = {pool.submit(fetch_html, member["profileUrl"], force): member for member in members}
+            futs = {pool.submit(fetch_html, member["profileUrl"], force): member for member in work_members}
             for fut in concurrent.futures.as_completed(futs):
                 member = futs[fut]
                 try:
@@ -753,13 +769,13 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
             for flights in profile_results.values()
             for flight in flights
         ]
-        if not available_dates:
+        if not available_dates and calculate_all:
             raise RuntimeError("Не удалось определить даты вылетов в профилях TAW; расчёт кампании невозможен.")
         # The campaign is explicitly bounded by the user-entered start date,
         # not by a guessed calendar year. This keeps future campaigns and
         # cross-year campaigns from silently mixing unrelated sorties.
         filtered_profiles: dict[str, list[dict[str, Any]]] = {}
-        for member in members:
+        for member in work_members:
             name = member["name"]
             filtered_profiles[name] = [
                 flight for flight in profile_results.get(name, [])
@@ -774,17 +790,17 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
         update_state(phase="sorties", message=f"Загружаю журналы вылетов с {start_date.strftime('%d.%m.%Y')}…", campaignYear=season_year, campaignStartDate=start_date.isoformat(),
                      processed=0, total=total_sorties, profileTotal=len(members), profileProcessed=len(members), warnings=warnings)
 
-        analyses_by_pilot: dict[str, list[dict[str, Any]]] = {m["name"]: [] for m in members}
-        expected_by_pilot = {m["name"]: len(filtered_profiles.get(m["name"], [])) for m in members}
-        completed_by_pilot = {m["name"]: 0 for m in members}
-        member_by_name = {m["name"]: m for m in members}
+        analyses_by_pilot: dict[str, list[dict[str, Any]]] = {m["name"]: [] for m in work_members}
+        expected_by_pilot = {m["name"]: len(filtered_profiles.get(m["name"], [])) for m in work_members}
+        completed_by_pilot = {m["name"]: 0 for m in work_members}
+        member_by_name = {m["name"]: m for m in work_members}
         task_list: list[tuple[dict[str, Any], dict[str, Any]]] = []
-        for member in members:
+        for member in work_members:
             for flight in filtered_profiles.get(member["name"], []):
                 task_list.append((member, flight))
 
         # Pilots with no sorties during the latest detected year can be shown immediately.
-        for member in members:
+        for member in work_members:
             if expected_by_pilot[member["name"]] == 0:
                 empty = {"name": member["name"], "official": member["official"], "profileUrl": member["profileUrl"],
                          "loading": False, "dataWarning": profile_errors.get(member["name"]), **calculate_modes([])}
@@ -872,16 +888,19 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                     if done_count % 5 == 0 or done_count == STATE["total"]:
                         STATE["message"] = f"Обработано журналов вылетов: {done_count} из {STATE['total']}…"
 
-        results = []
-        for member in members:
-            name = member["name"]
-            existing = next((p for p in public_state()["pilots"] if p["name"] == name and p.get("loading") is False and p.get("current") is not None), None)
-            if existing:
-                results.append(existing)
-            else:
-                results.append({"name": name, "official": member["official"], "profileUrl": member["profileUrl"],
-                                "loading": False, "dataWarning": profile_errors.get(name), "audit": audit_pilot(name), **calculate_modes(analyses_by_pilot.get(name, []))})
-        results.sort(key=lambda p: (-(p.get("campaign") or {}).get("score", 0), p["name"].casefold()))
+        if calculate_all:
+            results = []
+            for member in members:
+                name = member["name"]
+                existing = next((p for p in public_state()["pilots"] if p["name"] == name and p.get("loading") is False and p.get("current") is not None), None)
+                if existing:
+                    results.append(existing)
+                else:
+                    results.append({"name": name, "official": member["official"], "profileUrl": member["profileUrl"],
+                                    "loading": False, "dataWarning": profile_errors.get(name), "audit": audit_pilot(name), **calculate_modes(analyses_by_pilot.get(name, []))})
+            results.sort(key=lambda p: (-(p.get("campaign") or {}).get("score", 0), p["name"].casefold()))
+        else:
+            results = public_state().get("pilots", [])
         if failures:
             warnings.append(f"Не удалось прочитать {failures} журнал(ов). В расчётах таких вылетов данные могут быть неполными.")
         update_state(running=False, phase="complete", message="Данные TAW загружены", pilots=results,
@@ -919,7 +938,7 @@ def parse_squad_name(body: str, url: str) -> str:
     return normalize(name.replace("+", " ")) or "Эскадрилья TAW"
 
 
-def start_job(force: bool = False, squad_url: str | None = None, campaign_start_date: str | None = None):
+def start_job(force: bool = False, squad_url: str | None = None, campaign_start_date: str | None = None, selected_pilot: str | None = None, calculate_all: bool = True):
     with STATE_LOCK:
         if STATE["running"]:
             return False
@@ -934,10 +953,14 @@ def start_job(force: bool = False, squad_url: str | None = None, campaign_start_
         except ValueError:
             STATE.update({"error": "Укажи корректную дату начала кампании.", "phase": "error", "message": "Проверь дату кампании"})
             return False
+        same_dataset = STATE.get("squadUrl") == normalized_url and STATE.get("campaignStartDate") == requested_date
+        if not same_dataset:
+            STATE["pilots"] = []
         STATE.update({"running": True, "phase": "starting", "message": "Запускаю сбор данных…", "error": None,
                       "warnings": [], "processed": 0, "total": 0, "profileProcessed": 0, "profileTotal": 0,
-                      "squadUrl": normalized_url, "campaignStartDate": requested_date, "pilots": []})
-    threading.Thread(target=build_snapshot, args=(force, normalized_url, requested_date), daemon=True, name="taw-scraper").start()
+                      "squadUrl": normalized_url, "campaignStartDate": requested_date,
+                      "selectedPilot": selected_pilot, "calculateAll": calculate_all})
+    threading.Thread(target=build_snapshot, args=(force, normalized_url, requested_date, selected_pilot, calculate_all), daemon=True, name="taw-scraper").start()
     return True
 
 
@@ -974,7 +997,7 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/refresh":
             params = parse_qs(parsed.query)
             force = params.get("force", ["1"])[0] != "0"
-            started = start_job(force=force)
+            started = start_job(force=force, calculate_all=True)
             return self.respond_json({**public_state(), "started": started}, 202 if started else 409)
         if parsed.path == "/api/health":
             state = public_state()
@@ -993,7 +1016,9 @@ class Handler(SimpleHTTPRequestHandler):
             squad_url = validate_squad_url(str(payload.get("squadUrl", "")))
             campaign_start_date = str(payload.get("campaignStartDate", public_state().get("campaignStartDate", "2026-09-11")))
             datetime.strptime(campaign_start_date, "%Y-%m-%d")
-            started = start_job(force=bool(payload.get("force", False)), squad_url=squad_url, campaign_start_date=campaign_start_date)
+            calculate_all = bool(payload.get("calculateAll", False))
+            selected_pilot = str(payload.get("pilotName", "")).strip() or None
+            started = start_job(force=bool(payload.get("force", False)), squad_url=squad_url, campaign_start_date=campaign_start_date, selected_pilot=selected_pilot, calculate_all=calculate_all)
             state = public_state()
             state["started"] = started
             status = 202 if started else (409 if state.get("running") else 400)
