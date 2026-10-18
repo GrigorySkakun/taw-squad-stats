@@ -412,6 +412,7 @@ def parse_event_log(body: str) -> list[dict[str, str]]:
                 "object": cell_text(row, columns.get("object", -1)) if "object" in columns else "",
                 "type": cell_text(row, columns.get("type", -1)) if "type" in columns else "",
                 "enemy": cell_text(row, columns.get("enemy", -1)) if "enemy" in columns else "",
+                "line": " ".join(cell.text for cell in row),
             })
         if events:
             return events
@@ -458,7 +459,10 @@ def classify_ground(event: dict[str, str]) -> str | None:
     """
     obj = normalize(event.get("object", ""))
     typ = normalize(event.get("type", ""))
-    combined = f"{obj} {typ}"
+    # The legacy program classified the complete DESTROYED log row, not
+    # only the Object and Type cells. Preserve that behavior so markers in
+    # other cells/markup-derived text are not silently missed.
+    combined = normalize(event.get("line", "")) or f"{obj} {typ}"
     upper = combined.upper()
 
     if any(x in upper for x in ("BOTGUNNER", "TURRET", "GUNNER WAS DESTROYED")):
