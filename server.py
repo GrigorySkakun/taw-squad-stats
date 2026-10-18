@@ -637,34 +637,37 @@ def summarize_flights(analyzed: list[dict[str, Any]]) -> dict[str, Any]:
 
 def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
     all_analyzed = [x.get("analysis") for x in flights if x.get("analysis") is not None]
-    # Process chronologically so each sortie's kills belong to the streak that
-    # ended on that sortie. TAW records a death/capture/disconnect at the end of
-    # a flight; the kills made earlier in that same flight still count.
+    # TAW profile rows arrive newest -> oldest. Calculate streaks chronologically
+    # so the most recent non-breaker segment is the current streak.
     all_analyzed = sorted(all_analyzed, key=lambda x: x["flight"].get("date", ""))
 
-    # PILOT EXIT invalidates that sortie's statistics but does not break a
-    # streak. Breaker sorties count toward campaign totals and toward the
-    # completed streak ending with that sortie.
-    campaign = summarize_flights([
-        item for item in all_analyzed if not item.get("pilotExit", False)
-    ])
+    # Breaker sorties (KILLED, CAPTURED, DISCO) and PILOT EXIT sorties contribute
+    # no statistics. Breakers close the previous streak; PILOT EXIT is skipped
+    # without splitting the streak.
+    campaign_items = [
+        item for item in all_analyzed
+        if not item["breaker"] and not item.get("pilotExit", False)
+    ]
+    campaign = summarize_flights(campaign_items)
 
     segments: list[list[dict[str, Any]]] = []
     segment: list[dict[str, Any]] = []
     for item in all_analyzed:
         if item.get("pilotExit", False):
             continue
-        segment.append(item)
         if item["breaker"]:
-            segments.append(segment)
-            segment = []
+            if segment:
+                segments.append(segment)
+                segment = []
+            continue
+        segment.append(item)
+
     current_segment = list(segment)
     if current_segment:
         segments.append(current_segment)
-
     current = summarize_flights(current_segment)
-    # "Best streak" is the largest number of aircraft shot down in a segment;
-    # bally is only a tie-breaker.
+
+    # Best streak is the segment with most air kills; bally is only a tie-breaker.
     best_segment = max(
         segments,
         key=lambda seg: (sum(x["planes"] for x in seg), sum(x["scoreRaw"] for x in seg)),
