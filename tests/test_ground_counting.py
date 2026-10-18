@@ -97,13 +97,47 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(result["campaign"]["planes"], 3)
         self.assertEqual(result["current"]["score"], 20)
         self.assertEqual(result["current"]["planes"], 1)
-        self.assertEqual(result["best"]["score"], 20)
+        self.assertEqual(result["best"]["score"], 10)
         self.assertEqual(result["best"]["planes"], 2)
-    def test_bailed_out_breaks_only_if_captured(self):
-        bailed = {"status": "BAILED OUT"}
-        self.assertFalse(server.is_breaker(bailed, [{"event": "BAILED OUT"}]))
-        self.assertTrue(server.is_breaker(bailed, [{"event": "CAPTURED"}]))
+    def test_air_kill_requires_exact_event_plane_type_and_pilot(self):
+        valid = {
+            "date": "09.10.2026 12:10:22",
+            "event": "SHOT DOWN",
+            "object": "Spitfire Mk.IXe",
+            "type": "Plane",
+            "enemy": "FTC_KasperKJ",
+        }
+        self.assertTrue(server.is_air_kill(valid))
+        self.assertFalse(server.is_air_kill({**valid, "event": "WAS SHOT DOWN"}))
+        self.assertFalse(server.is_air_kill({**valid, "event": "SHOT DOWN BY AAA"}))
+        self.assertFalse(server.is_air_kill({**valid, "type": "Tank"}))
+        self.assertFalse(server.is_air_kill({**valid, "object": ""}))
+        self.assertFalse(server.is_air_kill({**valid, "enemy": ""}))
+
+    def test_event_log_parser_reads_aircraft_type_and_pilot(self):
+        html = """
+        <table>
+          <tr><th>Date</th><th>Event</th><th>Damage</th><th>Object</th><th>Type</th><th>Enemy</th></tr>
+          <tr><td>09.10.2026 12:10:22</td><td>SHOT DOWN</td><td></td>
+              <td>Spitfire Mk.IXe</td><td>Plane</td>
+              <td><a href="pilot_sortie.php?id=29623&amp;name=FTC_KasperKJ">FTC_KasperKJ</a></td></tr>
+        </table>
+        """
+        events = server.parse_event_log(html)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event"], "SHOT DOWN")
+        self.assertEqual(events[0]["object"], "Spitfire Mk.IXe")
+        self.assertEqual(events[0]["type"], "Plane")
+        self.assertEqual(events[0]["enemy"], "FTC_KasperKJ")
+        self.assertTrue(server.is_air_kill(events[0]))
+
+    def test_only_sortie_list_status_breaks_streak(self):
+        self.assertFalse(server.is_breaker({"status": "BAILED OUT"}, [{"event": "BAILED OUT"}]))
+        self.assertFalse(server.is_breaker({"status": "BAILED OUT"}, [{"event": "CAPTURED"}]))
         self.assertTrue(server.is_breaker({"status": "KILLED"}, []))
+        self.assertTrue(server.is_breaker({"status": "CAPTURED"}, []))
+        self.assertTrue(server.is_breaker({"status": "DISCO"}, []))
+        self.assertFalse(server.is_breaker({"status": "LANDED"}, [{"event": "WAS KILLED"}]))
 
     def test_pilot_exit_does_not_break_streak_but_is_detected(self):
         self.assertTrue(server.is_pilot_exit(
@@ -148,23 +182,16 @@ class GroundCountingTests(unittest.TestCase):
             self.assertEqual(result[mode]["score"], 30)
             self.assertEqual(result[mode]["sorties"], 2)
 
-    def test_event_log_breaker_overrides_unhelpful_profile_status(self):
-        self.assertTrue(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "KILLED"}],
-        ))
-        self.assertTrue(server.is_breaker(
-            {"status": "UNKNOWN"},
-            [{"event": "DISCO"}],
-        ))
-        self.assertFalse(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "DESTROYED"}],
-        ))
-        self.assertFalse(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "Enemy pilot was killed"}],
-        ))
+    def test_sortie_list_status_not_event_log_breaks_streak(self):
+        # Exact status from the profile's sortie row is authoritative.
+        for status in ("KILLED", "CAPTURED", "DISCO"):
+            self.assertTrue(server.is_breaker({"status": status}, []))
+        # Event log labels alone must not break the streak.
+        for event_name in ("WAS KILLED", "WAS CAPTURED", "DISCO", "KILLED", "Enemy pilot was killed"):
+            self.assertFalse(server.is_breaker(
+                {"status": "LANDED"},
+                [{"event": event_name}],
+            ))
 
 
 if __name__ == "__main__":
