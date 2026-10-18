@@ -5,6 +5,12 @@ import server
 
 
 class GroundCountingTests(unittest.TestCase):
+    def test_only_exact_shot_down_event_counts_as_air_kill(self):
+        self.assertTrue(server.is_air_kill({"event": "SHOT DOWN"}))
+        self.assertFalse(server.is_air_kill({"event": "WAS SHOT DOWN"}))
+        self.assertFalse(server.is_air_kill({"event": "PILOT WAS SHOT DOWN"}))
+        self.assertFalse(server.is_air_kill({"event": "SHOT DOWN BY AAA"}))
+
     def test_official_ground_kills_fill_other_ground_residual(self):
         flight = {
             "url": "https://tacticalairwar.com/pilot_sortie.php?id=test",
