@@ -150,6 +150,41 @@ class GroundCountingTests(unittest.TestCase):
             {"status": "LANDED", "remarks": "PILOT EXIT"}, []
         ))
 
+    def test_pilot_exit_with_uncredited_ground_targets_does_not_need_reconciliation_warning(self):
+        flight = {
+            "url": "https://tacticalairwar.com/pilot_sortie.php?id=pilot-exit",
+            "date": "2026-10-05T13:10:55",
+            "status": "LANDED",
+            "mission": "Test mission",
+            "groundKillsOfficial": 0,
+        }
+        events = [
+            {
+                "date": "05.10.2026 13:09:00",
+                "event": "DESTROYED",
+                "object": "PzKpfw IV Ausf.H",
+                "type": "Tank",
+                "enemy": "",
+                "damage": "",
+            },
+            {
+                "date": "05.10.2026 13:10:55",
+                "event": "PILOT EXIT",
+                "object": "",
+                "type": "",
+                "enemy": "",
+                "damage": "",
+            },
+        ]
+
+        result = server.analyze_flight(flight, events, official_ground_kills=0)
+
+        self.assertTrue(result["pilotExit"])
+        self.assertTrue(result["groundMismatch"])
+        # The mismatch can exist in the raw log, but no warning should be emitted
+        # because PILOT EXIT results are not credited by TAW.
+        self.assertIsNone(server.ground_mismatch_warning("72AG_lnf", flight, result))
+
     def test_pilot_exit_results_are_excluded_without_splitting_streak(self):
         def item(date, score, pilot_exit=False, breaker=False):
             counts = {
