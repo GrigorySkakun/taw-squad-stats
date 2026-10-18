@@ -725,14 +725,14 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
         members = parse_squad_page(squad_body)
         squad_name = parse_squad_name(squad_body, squad_url)
         existing_pilots = {p.get("name"): p for p in public_state().get("pilots", [])}
-        if not calculate_all:
+        if not calculate_all and selected_pilot:
             selected_member = next((m for m in members if m["name"] == selected_pilot), None)
             if selected_member is None:
                 selected_member = members[0] if members else None
             if selected_member is None:
                 raise RuntimeError("В составе TAW не найдено ни одного пилота.")
             selected_pilot = selected_member["name"]
-        work_members = members if calculate_all else [m for m in members if m["name"] == selected_pilot]
+        work_members = members if calculate_all else ([m for m in members if m["name"] == selected_pilot] if selected_pilot else [])
         pilot_rows = []
         for m in members:
             old = existing_pilots.get(m["name"])
@@ -743,7 +743,13 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                     "name": m["name"], "official": m["official"], "profileUrl": m["profileUrl"],
                     "current": None, "best": None, "campaign": None, "loading": True
                 })
-        update_state(squadName=squad_name, squadUrl=squad_url, selectedPilot=selected_pilot)
+        update_state(squadName=squad_name, squadUrl=squad_url, selectedPilot=selected_pilot, pilots=pilot_rows)
+        if not calculate_all and not selected_pilot:
+            update_state(running=False, phase="complete", message="Состав TAW загружен. Выбери пилота для расчёта.",
+                         processed=0, total=0, profileProcessed=0, profileTotal=0, mapName=map_name,
+                         squadName=squad_name, squadUrl=squad_url, updatedAt=datetime.now().astimezone().isoformat(timespec="seconds"),
+                         warnings=[], error=None)
+            return
         update_state(phase="profiles", message=f"Читаю страницы пилотов; кампания с {start_date.strftime('%d.%m.%Y')}…",
                      profileTotal=len(work_members), profileProcessed=0, mapName=map_name, squadName=squad_name, squadUrl=squad_url, pilots=pilot_rows)
 
