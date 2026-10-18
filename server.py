@@ -594,18 +594,18 @@ def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
     if status in BREAK_STATUSES:
         return True
 
-    # Do not rely only on the profile-page status icon: it can be absent or
-    # misread from the HTML. The sortie's event log is the strongest evidence
-    # that a death, capture, or disconnect ended the flight/streak.
+    # Event names may mention a killed enemy or another pilot. Only treat an
+    # event as a breaker when the event itself identifies the pilot's terminal
+    # status; a keyword appearing anywhere in a longer description is not enough.
     for event in events:
         event_name = normalize(event.get("event", "")).upper()
         if event_name in BREAK_STATUSES:
             return True
-        if re.search(r"\b(?:KILLED|CAPTURED|DISCO)\b", event_name):
+        if re.fullmatch(r"(?:PILOT\s+)?(?:WAS\s+)?(?:KILLED|CAPTURED|DISCO)", event_name):
             return True
 
     # BAILED OUT by itself preserves a streak; CAPTURED above breaks it.
-    # LANDED also preserves the streak.
+    # LANDED also preserves a streak.
     return False
 
 
@@ -636,38 +636,35 @@ def summarize_flights(analyzed: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
-    # Flights arrive newest -> oldest, exactly like TAW's public pilot page.
     all_analyzed = [x.get("analysis") for x in flights if x.get("analysis") is not None]
-    all_analyzed = sorted(all_analyzed, key=lambda x: x["flight"].get("date", ""), reverse=True)
-    # Breaker sorties and PILOT EXIT sorties contribute no statistics.
-    # PILOT EXIT is not a breaker, so it must not split a streak segment.
-    counted_analyzed = [
-        item for item in all_analyzed
-        if not item["breaker"] and not item.get("pilotExit", False)
-    ]
-    campaign = summarize_flights(counted_analyzed)
+    # Process chronologically so each sortie's kills belong to the streak that
+    # ended on that sortie. TAW records a death/capture/disconnect at the end of
+    # a flight; the kills made earlier in that same flight still count.
+    all_analyzed = sorted(all_analyzed, key=lambda x: x["flight"].get("date", ""))
+
+    # PILOT EXIT invalidates that sortie's statistics but does not break a
+    # streak. Breaker sorties count toward campaign totals and toward the
+    # completed streak ending with that sortie.
+    campaign = summarize_flights([
+        item for item in all_analyzed if not item.get("pilotExit", False)
+    ])
+
     segments: list[list[dict[str, Any]]] = []
     segment: list[dict[str, Any]] = []
-    first_segment: list[dict[str, Any]] = []
-    saw_first_break = False
     for item in all_analyzed:
+        if item.get("pilotExit", False):
+            continue
+        segment.append(item)
         if item["breaker"]:
-            if segment:
-                segments.append(segment)
-            if not saw_first_break:
-                first_segment = list(segment)
-                saw_first_break = True
+            segments.append(segment)
             segment = []
-        elif not item.get("pilotExit", False):
-            # Skip the sortie's scores without breaking the streak continuity.
-            segment.append(item)
-    if segment:
-        segments.append(segment)
-    if not saw_first_break:
-        first_segment = list(segment)
-    current = summarize_flights(first_segment)
-    # "Best streak" is defined by the number of aircraft shot down, not by bally.
-    # Bally is only a tie-breaker when two segments have the same air-kill count.
+    current_segment = list(segment)
+    if current_segment:
+        segments.append(current_segment)
+
+    current = summarize_flights(current_segment)
+    # "Best streak" is the largest number of aircraft shot down in a segment;
+    # bally is only a tie-breaker.
     best_segment = max(
         segments,
         key=lambda seg: (sum(x["planes"] for x in seg), sum(x["scoreRaw"] for x in seg)),

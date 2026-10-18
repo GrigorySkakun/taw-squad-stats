@@ -62,8 +62,8 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(server.classify_ground({"object": "85mm AT gun", "type": "Gun"}), "artillery")
         self.assertEqual(server.classify_ground({"object": "Unknown object", "type": "Unknown"}), None)
 
-    def test_breaker_sorties_are_excluded_from_campaign(self):
-        def item(date, score, breaker):
+    def test_breaker_sortie_counts_in_campaign_and_ends_the_streak(self):
+        def item(date, score, breaker, planes):
             counts = {
                 "fighter": 0, "attack": 0, "bomber": 0,
                 "heavyTank": 0, "mediumTank": 0, "lightTank": 0,
@@ -75,7 +75,7 @@ class GroundCountingTests(unittest.TestCase):
                 "scoreRaw": float(score),
                 "score": score,
                 "sorties": 1,
-                "planes": 0,
+                "planes": planes,
                 "ground": 0,
                 "wounds": 0,
                 "counts": counts,
@@ -84,17 +84,21 @@ class GroundCountingTests(unittest.TestCase):
             }
             return {"analysis": analysis, "flight": analysis["flight"]}
 
+        # Input is newest to oldest, matching TAW's profile page.
         flights = [
-            item("2026-10-17T12:00:00", 20, False),
-            item("2026-10-16T12:00:00", 99, True),
-            item("2026-10-15T12:00:00", 10, False),
+            item("2026-10-17T12:00:00", 20, False, 1),
+            item("2026-10-16T12:00:00", 99, True, 3),
+            item("2026-10-15T12:00:00", 10, False, 2),
         ]
         result = server.calculate_modes(flights)
 
-        self.assertEqual(result["campaign"]["sorties"], 2)
-        self.assertEqual(result["campaign"]["score"], 30)
+        self.assertEqual(result["campaign"]["sorties"], 3)
+        self.assertEqual(result["campaign"]["score"], 129)
+        self.assertEqual(result["campaign"]["planes"], 6)
         self.assertEqual(result["current"]["score"], 20)
-        self.assertEqual(result["best"]["score"], 20)
+        self.assertEqual(result["current"]["planes"], 1)
+        self.assertEqual(result["best"]["score"], 109)
+        self.assertEqual(result["best"]["planes"], 5)
 
     def test_bailed_out_breaks_only_if_captured(self):
         bailed = {"status": "BAILED OUT"}
@@ -157,6 +161,10 @@ class GroundCountingTests(unittest.TestCase):
         self.assertFalse(server.is_breaker(
             {"status": "LANDED"},
             [{"event": "DESTROYED"}],
+        ))
+        self.assertFalse(server.is_breaker(
+            {"status": "LANDED"},
+            [{"event": "Enemy pilot was killed"}],
         ))
 
 
