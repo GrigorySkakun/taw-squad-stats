@@ -520,7 +520,10 @@ def analyze_flight(
                 "mission": flight.get("mission", ""),
                 "sortieUrl": flight["url"],
             })
-        if ev_name == "DESTROYED":
+        if ev_name == "DESTROYED" and not any(
+            marker in f"{event.get('object', '')} {event.get('type', '')}".upper()
+            for marker in ("BOTGUNNER", "TURRET", "GUNNER WAS DESTROYED")
+        ):
             event_dt = parse_date(event.get("date", "")) or datetime.fromisoformat(flight["date"])
             cat = classify_ground(event)
             if cat:
