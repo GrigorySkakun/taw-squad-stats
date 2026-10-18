@@ -904,7 +904,7 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                 else:
                     results.append({"name": name, "official": member["official"], "profileUrl": member["profileUrl"],
                                     "loading": False, "dataWarning": profile_errors.get(name), "audit": audit_pilot(name), **calculate_modes(analyses_by_pilot.get(name, []))})
-            results.sort(key=lambda p: (-(p.get("campaign") or {}).get("score", 0), p["name"].casefold()))
+            # Keep the original order from the TAW squad roster.
         else:
             results = public_state().get("pilots", [])
         if failures:
