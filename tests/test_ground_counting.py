@@ -99,11 +99,13 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(result["current"]["planes"], 1)
         self.assertEqual(result["best"]["score"], 20)
         self.assertEqual(result["best"]["planes"], 2)
-    def test_bailed_out_breaks_only_if_captured(self):
-        bailed = {"status": "BAILED OUT"}
-        self.assertFalse(server.is_breaker(bailed, [{"event": "BAILED OUT"}]))
-        self.assertTrue(server.is_breaker(bailed, [{"event": "CAPTURED"}]))
+    def test_only_sortie_list_status_breaks_streak(self):
+        self.assertFalse(server.is_breaker({"status": "BAILED OUT"}, [{"event": "BAILED OUT"}]))
+        self.assertFalse(server.is_breaker({"status": "BAILED OUT"}, [{"event": "CAPTURED"}]))
         self.assertTrue(server.is_breaker({"status": "KILLED"}, []))
+        self.assertTrue(server.is_breaker({"status": "CAPTURED"}, []))
+        self.assertTrue(server.is_breaker({"status": "DISCO"}, []))
+        self.assertFalse(server.is_breaker({"status": "LANDED"}, [{"event": "WAS KILLED"}]))
 
     def test_pilot_exit_does_not_break_streak_but_is_detected(self):
         self.assertTrue(server.is_pilot_exit(
@@ -148,36 +150,16 @@ class GroundCountingTests(unittest.TestCase):
             self.assertEqual(result[mode]["score"], 30)
             self.assertEqual(result[mode]["sorties"], 2)
 
-    def test_only_exact_taw_event_labels_break_streak(self):
-        self.assertTrue(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "WAS KILLED"}],
-        ))
-        self.assertTrue(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "WAS CAPTURED"}],
-        ))
-        self.assertTrue(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "DISCO"}],
-        ))
-        # Profile status alone must not break the streak.
-        self.assertFalse(server.is_breaker({"status": "KILLED"}, []))
-        self.assertFalse(server.is_breaker({"status": "CAPTURED"}, []))
-        self.assertFalse(server.is_breaker({"status": "DISCO"}, []))
-        # Similar wording in a description is not one of the exact event labels.
-        self.assertFalse(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "KILLED"}],
-        ))
-        self.assertFalse(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "Enemy pilot was killed"}],
-        ))
-        self.assertFalse(server.is_breaker(
-            {"status": "LANDED"},
-            [{"event": "DESTROYED"}],
-        ))
+    def test_sortie_list_status_not_event_log_breaks_streak(self):
+        # Exact status from the profile's sortie row is authoritative.
+        for status in ("KILLED", "CAPTURED", "DISCO"):
+            self.assertTrue(server.is_breaker({"status": status}, []))
+        # Event log labels alone must not break the streak.
+        for event_name in ("WAS KILLED", "WAS CAPTURED", "DISCO", "KILLED", "Enemy pilot was killed"):
+            self.assertFalse(server.is_breaker(
+                {"status": "LANDED"},
+                [{"event": event_name}],
+            ))
 
 
 if __name__ == "__main__":
