@@ -549,7 +549,10 @@ def analyze_flight(
     official_ground_kills = max(0, int(official_ground_kills or 0))
     classified_ground = sum(counts[key] * GROUND_KILL_WEIGHTS[key] for key in GROUND_CATEGORY_KEYS)
     counts["otherGround"] = max(0, official_ground_kills - classified_ground)
-    ground_mismatch = classified_ground > official_ground_kills
+    pilot_exit = is_pilot_exit(flight, events)
+    # PILOT EXIT sorties are excluded from credited results. Targets recorded in
+    # their event logs must not trigger a mismatch against TAW official totals.
+    ground_mismatch = not pilot_exit and classified_ground > official_ground_kills
 
     # Preserve the existing program's current scoring expression exactly:
     # lp + mp*1 + mp*1.5 + hp*2 + ground coefficients.
@@ -589,7 +592,7 @@ def analyze_flight(
         "victories": victories,
         "groundEvents": ground_events,
         "breaker": is_breaker(flight, events),
-        "pilotExit": is_pilot_exit(flight, events),
+        "pilotExit": pilot_exit,
     }
 
 
@@ -839,7 +842,7 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
             mismatches = []
             for flight in profile_flights:
                 analysis = by_url.get(flight["url"])
-                if analysis is None:
+                if analysis is None or analysis.get("pilotExit", False):
                     continue
                 official_air = int(flight.get("airKillsOfficial", 0) or 0)
                 logged_air = int(analysis.get("planes", 0) or 0)
@@ -852,12 +855,22 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                         "loggedAirKills": logged_air,
                     })
             successful = len(by_url)
+            credited_analyses = [
+                item["analysis"] for item in analyzed_items
+                if not item["analysis"].get("pilotExit", False)
+            ]
+            credited_urls = {
+                analysis["flight"]["url"] for analysis in credited_analyses
+            }
             return {
                 "sortiesFound": len(profile_flights),
                 "sortiesRead": successful,
                 "sortiesFailed": max(0, len(profile_flights) - successful),
-                "profileAirKills": sum(int(f.get("airKillsOfficial", 0) or 0) for f in profile_flights),
-                "loggedAirKills": sum(int(item["analysis"].get("planes", 0) or 0) for item in analyzed_items),
+                "profileAirKills": sum(
+                    int(f.get("airKillsOfficial", 0) or 0)
+                    for f in profile_flights if f.get("url") in credited_urls
+                ),
+                "loggedAirKills": sum(int(analysis.get("planes", 0) or 0) for analysis in credited_analyses),
                 "mismatches": sorted(mismatches, key=lambda x: x.get("date", ""), reverse=True)[:50],
             }
 
