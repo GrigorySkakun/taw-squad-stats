@@ -471,13 +471,14 @@ def classify_ground(event: dict[str, str]) -> str | None:
         return "lightTank"
     if "STATIC_PLANE" in upper or typ.casefold() == "plane":
         return "groundedPlanes"
-    # Mirror the legacy Contains("AA") / Contains("AT") checks against the
-    # original text, preserving their case-sensitive behavior.
-    if "AA" in combined:
+    # Marker matching is case-insensitive because TAW log rows can vary in
+    # capitalization. Treat AT as a standalone marker so unrelated words do
+    # not get misclassified as artillery.
+    if "AA" in upper:
         return "aa"
     if "WAGON" in upper or "TRAIN" in upper:
         return "trains"
-    if "ARTILLERY" in upper or "ARTY" in upper or "AT" in combined:
+    if "ARTILLERY" in upper or "ARTY" in upper or re.search(r"\bAT\b", upper):
         return "artillery"
     if "TRUCK" in upper or "APC" in upper:
         return "vehicles"
@@ -825,7 +826,15 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
             events = parse_event_log(page)
             if not events:
                 raise RuntimeError("Таблица событий не найдена")
-            official_ground_kills = parse_ground_kills_official(page)
+            # Prefer the Ground Kills value from the pilot's sortie-list row,
+            # which is the value included in the official profile total. Parse
+            # the detail page only if the row does not contain this field.
+            profile_ground_kills = flight.get("groundKillsOfficial")
+            official_ground_kills = (
+                max(0, int(profile_ground_kills))
+                if profile_ground_kills is not None
+                else parse_ground_kills_official(page)
+            )
             analysis = analyze_flight(flight, events, official_ground_kills)
             if analysis["groundMismatch"]:
                 warnings.append(
