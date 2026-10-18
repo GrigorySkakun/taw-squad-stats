@@ -148,22 +148,35 @@ class GroundCountingTests(unittest.TestCase):
             self.assertEqual(result[mode]["score"], 30)
             self.assertEqual(result[mode]["sorties"], 2)
 
-    def test_event_log_breaker_overrides_unhelpful_profile_status(self):
+    def test_only_exact_taw_event_labels_break_streak(self):
         self.assertTrue(server.is_breaker(
             {"status": "LANDED"},
-            [{"event": "KILLED"}],
+            [{"event": "WAS KILLED"}],
         ))
         self.assertTrue(server.is_breaker(
-            {"status": "UNKNOWN"},
+            {"status": "LANDED"},
+            [{"event": "WAS CAPTURED"}],
+        ))
+        self.assertTrue(server.is_breaker(
+            {"status": "LANDED"},
             [{"event": "DISCO"}],
         ))
+        # Profile status alone must not break the streak.
+        self.assertFalse(server.is_breaker({"status": "KILLED"}, []))
+        self.assertFalse(server.is_breaker({"status": "CAPTURED"}, []))
+        self.assertFalse(server.is_breaker({"status": "DISCO"}, []))
+        # Similar wording in a description is not one of the exact event labels.
         self.assertFalse(server.is_breaker(
             {"status": "LANDED"},
-            [{"event": "DESTROYED"}],
+            [{"event": "KILLED"}],
         ))
         self.assertFalse(server.is_breaker(
             {"status": "LANDED"},
             [{"event": "Enemy pilot was killed"}],
+        ))
+        self.assertFalse(server.is_breaker(
+            {"status": "LANDED"},
+            [{"event": "DESTROYED"}],
         ))
 
 
