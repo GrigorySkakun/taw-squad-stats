@@ -824,7 +824,9 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                 raise RuntimeError("Таблица событий не найдена")
             official_ground_kills = parse_ground_kills_official(page)
             analysis = analyze_flight(flight, events, official_ground_kills)
-            if analysis["groundMismatch"]:
+            # PILOT EXIT sorties are excluded from credited results, so their
+            # event-log targets must not trigger a Ground Kills reconciliation warning.
+            if analysis["groundMismatch"] and not analysis.get("pilotExit", False):
                 warnings.append(
                     f"{member['name']}, {flight.get('date', '')}: сумма классифицированных "
                     f"наземных целей ({analysis['groundClassified']}) выше Ground Kills TAW "
