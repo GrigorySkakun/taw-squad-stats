@@ -62,7 +62,7 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(server.classify_ground({"object": "85mm AT gun", "type": "Gun"}), "artillery")
         self.assertEqual(server.classify_ground({"object": "Unknown object", "type": "Unknown"}), None)
 
-    def test_breaker_sortie_counts_in_campaign_and_ends_the_streak(self):
+    def test_breaker_sortie_is_excluded_from_campaign_and_streaks(self):
         def item(date, score, breaker, planes):
             counts = {
                 "fighter": 0, "attack": 0, "bomber": 0,
@@ -92,14 +92,13 @@ class GroundCountingTests(unittest.TestCase):
         ]
         result = server.calculate_modes(flights)
 
-        self.assertEqual(result["campaign"]["sorties"], 3)
-        self.assertEqual(result["campaign"]["score"], 129)
-        self.assertEqual(result["campaign"]["planes"], 6)
+        self.assertEqual(result["campaign"]["sorties"], 2)
+        self.assertEqual(result["campaign"]["score"], 30)
+        self.assertEqual(result["campaign"]["planes"], 3)
         self.assertEqual(result["current"]["score"], 20)
         self.assertEqual(result["current"]["planes"], 1)
-        self.assertEqual(result["best"]["score"], 109)
-        self.assertEqual(result["best"]["planes"], 5)
-
+        self.assertEqual(result["best"]["score"], 20)
+        self.assertEqual(result["best"]["planes"], 2)
     def test_bailed_out_breaks_only_if_captured(self):
         bailed = {"status": "BAILED OUT"}
         self.assertFalse(server.is_breaker(bailed, [{"event": "BAILED OUT"}]))
