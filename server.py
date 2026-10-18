@@ -47,6 +47,7 @@ STATE: dict[str, Any] = {
     "profileProcessed": 0,
     "profileTotal": 0,
     "campaignYear": None,
+    "campaignStartDate": "2026-09-11",
     "mapName": None,
     "updatedAt": None,
     "error": None,
@@ -665,7 +666,13 @@ def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
     if not saw_first_break:
         first_segment = list(segment)
     current = summarize_flights(first_segment)
-    best_segment = max(segments, key=lambda seg: sum(x["scoreRaw"] for x in seg), default=[])
+    # "Best streak" is defined by the number of aircraft shot down, not by bally.
+    # Bally is only a tie-breaker when two segments have the same air-kill count.
+    best_segment = max(
+        segments,
+        key=lambda seg: (sum(x["planes"] for x in seg), sum(x["scoreRaw"] for x in seg)),
+        default=[],
+    )
     best = summarize_flights(best_segment)
     return {"current": current, "best": best, "campaign": campaign}
 
@@ -688,9 +695,14 @@ def update_state(**kwargs):
         STATE.update(kwargs)
 
 
-def build_snapshot(force: bool = False, squad_url: str | None = None):
+def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_start_date: str | None = None):
     warnings: list[str] = []
     squad_url = validate_squad_url(squad_url or public_state().get("squadUrl") or DEFAULT_SQUAD_URL)
+    campaign_start_date = campaign_start_date or public_state().get("campaignStartDate") or "2026-09-11"
+    try:
+        start_date = datetime.strptime(campaign_start_date, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("Дата начала кампании должна быть в формате ГГГГ-ММ-ДД.") from exc
     try:
         update_state(running=True, phase="squad", message="Загружаю состав эскадрильи TAW…", processed=0, total=0,
                      profileProcessed=0, profileTotal=0, error=None, warnings=[], pilots=[], campaignYear=None, mapName=None)
@@ -705,7 +717,7 @@ def build_snapshot(force: bool = False, squad_url: str | None = None):
         members = parse_squad_page(squad_body)
         squad_name = parse_squad_name(squad_body, squad_url)
         update_state(squadName=squad_name, squadUrl=squad_url)
-        update_state(phase="profiles", message="Читаю страницы пилотов и нахожу последний год вылетов…",
+        update_state(phase="profiles", message=f"Читаю страницы пилотов; кампания с {start_date.strftime('%d.%m.%Y')}…",
                      profileTotal=len(members), profileProcessed=0, mapName=map_name, squadName=squad_name, squadUrl=squad_url, pilots=[{
                          "name": m["name"], "official": m["official"], "profileUrl": m["profileUrl"],
                          "current": None, "best": None, "campaign": None, "loading": True
@@ -728,20 +740,30 @@ def build_snapshot(force: bool = False, squad_url: str | None = None):
                     warnings.append(f"{member['name']}: ошибка профиля")
                 with STATE_LOCK:
                     STATE["profileProcessed"] += 1
-        years = []
-        for flights in profile_results.values():
-            for flight in flights:
-                dt = datetime.fromisoformat(flight["date"])
-                years.append(dt.year)
-        if not years:
+        available_dates = [
+            datetime.fromisoformat(flight["date"]).date()
+            for flights in profile_results.values()
+            for flight in flights
+        ]
+        if not available_dates:
             raise RuntimeError("Не удалось определить даты вылетов в профилях TAW; расчёт кампании невозможен.")
-        season_year = max(years)
+        # The campaign is explicitly bounded by the user-entered start date,
+        # not by a guessed calendar year. This keeps future campaigns and
+        # cross-year campaigns from silently mixing unrelated sorties.
         filtered_profiles: dict[str, list[dict[str, Any]]] = {}
         for member in members:
             name = member["name"]
-            filtered_profiles[name] = [f for f in profile_results.get(name, []) if datetime.fromisoformat(f["date"]).year == season_year]
+            filtered_profiles[name] = [
+                flight for flight in profile_results.get(name, [])
+                if datetime.fromisoformat(flight["date"]).date() >= start_date
+            ]
+        season_year = max(
+            (datetime.fromisoformat(flight["date"]).year
+             for flights in filtered_profiles.values() for flight in flights),
+            default=start_date.year,
+        )
         total_sorties = sum(len(v) for v in filtered_profiles.values())
-        update_state(phase="sorties", message=f"Загружаю журналы вылетов за {season_year} год…", campaignYear=season_year,
+        update_state(phase="sorties", message=f"Загружаю журналы вылетов с {start_date.strftime('%d.%m.%Y')}…", campaignYear=season_year, campaignStartDate=start_date.isoformat(),
                      processed=0, total=total_sorties, profileTotal=len(members), profileProcessed=len(members), warnings=warnings)
 
         analyses_by_pilot: dict[str, list[dict[str, Any]]] = {m["name"]: [] for m in members}
@@ -860,7 +882,7 @@ def parse_squad_name(body: str, url: str) -> str:
     return normalize(name.replace("+", " ")) or "Эскадрилья TAW"
 
 
-def start_job(force: bool = False, squad_url: str | None = None):
+def start_job(force: bool = False, squad_url: str | None = None, campaign_start_date: str | None = None):
     with STATE_LOCK:
         if STATE["running"]:
             return False
@@ -869,10 +891,16 @@ def start_job(force: bool = False, squad_url: str | None = None):
         except ValueError as exc:
             STATE.update({"error": str(exc), "phase": "error", "message": "Проверь ссылку на эскадрилью"})
             return False
+        requested_date = campaign_start_date or STATE.get("campaignStartDate") or "2026-09-11"
+        try:
+            datetime.strptime(requested_date, "%Y-%m-%d")
+        except ValueError:
+            STATE.update({"error": "Укажи корректную дату начала кампании.", "phase": "error", "message": "Проверь дату кампании"})
+            return False
         STATE.update({"running": True, "phase": "starting", "message": "Запускаю сбор данных…", "error": None,
                       "warnings": [], "processed": 0, "total": 0, "profileProcessed": 0, "profileTotal": 0,
-                      "squadUrl": normalized_url, "pilots": []})
-    threading.Thread(target=build_snapshot, args=(force, normalized_url), daemon=True, name="taw-scraper").start()
+                      "squadUrl": normalized_url, "campaignStartDate": requested_date, "pilots": []})
+    threading.Thread(target=build_snapshot, args=(force, normalized_url, requested_date), daemon=True, name="taw-scraper").start()
     return True
 
 
@@ -926,7 +954,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.respond_json({"error": "Слишком большой запрос"}, 413)
             payload = json.loads(self.rfile.read(size).decode("utf-8") or "{}")
             squad_url = validate_squad_url(str(payload.get("squadUrl", "")))
-            started = start_job(force=bool(payload.get("force", False)), squad_url=squad_url)
+            campaign_start_date = str(payload.get("campaignStartDate", public_state().get("campaignStartDate", "2026-09-11")))
+            datetime.strptime(campaign_start_date, "%Y-%m-%d")
+            started = start_job(force=bool(payload.get("force", False)), squad_url=squad_url, campaign_start_date=campaign_start_date)
             state = public_state()
             state["started"] = started
             status = 202 if started else (409 if state.get("running") else 400)
@@ -948,7 +978,7 @@ def main():
     else:
         print(f"Открой в браузере: http://{host}:{port}")
     print("Источник данных: публичные страницы tacticalairwar.com")
-    print("Вставь URL страницы squad_stats.php в поле и нажми «Загрузить данные».")
+    print("Вставь URL страницы squad_stats.php, укажи дату начала кампании и нажми «Загрузить данные».")
     print("Для остановки нажми Ctrl+C. Первичная загрузка журналов может занять несколько минут.\n")
     try:
         server.serve_forever()
