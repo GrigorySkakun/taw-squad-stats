@@ -423,9 +423,9 @@ def has_any(value: str, choices: list[str]) -> bool:
 
 
 def is_air_kill(event: dict[str, str]) -> bool:
-    # Exclude the opponent-side marker: only SHOT DOWN represents the user's kill.
-    value = event.get("event", "").upper()
-    return "SHOT DOWN" in value and "WAS SHOT DOWN" not in value
+    # TAW's event column uses the exact label SHOT DOWN for a kill by this pilot.
+    # WAS SHOT DOWN is the opposite event and must never count as a victory.
+    return normalize(event.get("event", "")).upper() == "SHOT DOWN"
 
 
 def classify_plane(plane: str) -> list[str]:
