@@ -800,7 +800,10 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
              for flights in filtered_profiles.values() for flight in flights),
             default=start_date.year,
         )
-        total_sorties = sum(len(v) for v in filtered_profiles.values())
+        total_sorties = sum(
+            1 for flights in filtered_profiles.values()
+            for flight in flights if not should_skip_sortie_page(flight)
+        )
         update_state(phase="sorties", message=f"Загружаю журналы вылетов с {start_date.strftime('%d.%m.%Y')}…", campaignYear=season_year, campaignStartDate=start_date.isoformat(),
                      processed=0, total=total_sorties, profileTotal=len(members), profileProcessed=len(members), warnings=warnings)
 
