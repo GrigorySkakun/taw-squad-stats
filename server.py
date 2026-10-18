@@ -802,11 +802,40 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                 )
             return member["name"], analysis
 
+        def audit_pilot(name: str) -> dict[str, Any]:
+            profile_flights = filtered_profiles.get(name, [])
+            analyzed_items = analyses_by_pilot.get(name, [])
+            by_url = {item["analysis"]["flight"]["url"]: item["analysis"] for item in analyzed_items}
+            mismatches = []
+            for flight in profile_flights:
+                analysis = by_url.get(flight["url"])
+                if analysis is None:
+                    continue
+                official_air = int(flight.get("airKillsOfficial", 0) or 0)
+                logged_air = int(analysis.get("planes", 0) or 0)
+                if official_air != logged_air:
+                    mismatches.append({
+                        "date": flight.get("date", ""),
+                        "mission": flight.get("mission", ""),
+                        "url": flight.get("url", ""),
+                        "officialAirKills": official_air,
+                        "loggedAirKills": logged_air,
+                    })
+            successful = len(by_url)
+            return {
+                "sortiesFound": len(profile_flights),
+                "sortiesRead": successful,
+                "sortiesFailed": max(0, len(profile_flights) - successful),
+                "profileAirKills": sum(int(f.get("airKillsOfficial", 0) or 0) for f in profile_flights),
+                "loggedAirKills": sum(int(item["analysis"].get("planes", 0) or 0) for item in analyzed_items),
+                "mismatches": sorted(mismatches, key=lambda x: x.get("date", ""), reverse=True)[:50],
+            }
+
         def publish_pilot(name: str):
             member = member_by_name[name]
             modes = calculate_modes(analyses_by_pilot.get(name, []))
             entry = {"name": name, "official": member["official"], "profileUrl": member["profileUrl"],
-                     "loading": False, "dataWarning": profile_errors.get(name), **modes}
+                     "loading": False, "dataWarning": profile_errors.get(name), "audit": audit_pilot(name), **modes}
             with STATE_LOCK:
                 for idx, p in enumerate(STATE["pilots"]):
                     if p["name"] == name:
@@ -843,7 +872,7 @@ def build_snapshot(force: bool = False, squad_url: str | None = None, campaign_s
                 results.append(existing)
             else:
                 results.append({"name": name, "official": member["official"], "profileUrl": member["profileUrl"],
-                                "loading": False, "dataWarning": profile_errors.get(name), **calculate_modes(analyses_by_pilot.get(name, []))})
+                                "loading": False, "dataWarning": profile_errors.get(name), "audit": audit_pilot(name), **calculate_modes(analyses_by_pilot.get(name, []))})
         results.sort(key=lambda p: (-(p.get("campaign") or {}).get("score", 0), p["name"].casefold()))
         if failures:
             warnings.append(f"Не удалось прочитать {failures} журнал(ов). В расчётах таких вылетов данные могут быть неполными.")
