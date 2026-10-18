@@ -395,7 +395,7 @@ def parse_event_log(body: str) -> list[dict[str, str]]:
                     elif label == "event" or "event" in label: columns["event"] = j
                     elif "object" in label: columns["object"] = j
                     elif label == "type" or "type" in label: columns["type"] = j
-                    elif "enemy" in label: columns["enemy"] = j
+                    elif "enemy" in label or "pilot" in label: columns["enemy"] = j
                     elif "damage" in label: columns["damage"] = j
                 break
         if header_idx is None:
@@ -424,9 +424,21 @@ def has_any(value: str, choices: list[str]) -> bool:
 
 
 def is_air_kill(event: dict[str, str]) -> bool:
-    # Exclude the opponent-side marker: only SHOT DOWN represents the user's kill.
-    value = event.get("event", "").upper()
-    return "SHOT DOWN" in value and "WAS SHOT DOWN" not in value
+    """Count only a complete TAW air-victory row, not loosely matching text.
+
+    Expected row: exact SHOT DOWN event, a named aircraft, type Plane, and
+    the downed pilot's nickname in the final/enemy column.
+    """
+    event_name = normalize(event.get("event", "")).upper()
+    plane = normalize(event.get("object", ""))
+    object_type = normalize(event.get("type", "")).casefold()
+    enemy_pilot = normalize(event.get("enemy", ""))
+    return (
+        event_name == "SHOT DOWN"
+        and bool(plane)
+        and object_type == "plane"
+        and bool(enemy_pilot)
+    )
 
 
 def classify_plane(plane: str) -> list[str]:
