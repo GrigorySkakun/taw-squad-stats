@@ -590,23 +590,12 @@ def is_pilot_exit(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
 
 
 def is_breaker(flight: dict[str, Any], events: list[dict[str, str]]) -> bool:
-    status = normalize(flight.get("status", "")).upper()
-    if status in BREAK_STATUSES:
-        return True
-
-    # Event names may mention a killed enemy or another pilot. Only treat an
-    # event as a breaker when the event itself identifies the pilot's terminal
-    # status; a keyword appearing anywhere in a longer description is not enough.
-    for event in events:
-        event_name = normalize(event.get("event", "")).upper()
-        if event_name in BREAK_STATUSES:
-            return True
-        if re.fullmatch(r"(?:PILOT\s+)?(?:WAS\s+)?(?:KILLED|CAPTURED|DISCO)", event_name):
-            return True
-
-    # BAILED OUT by itself preserves a streak; CAPTURED above breaks it.
-    # LANDED also preserves a streak.
-    return False
+    """Only exact TAW event labels break a streak; profile status is not enough."""
+    breaker_labels = {"WAS KILLED", "WAS CAPTURED", "DISCO"}
+    return any(
+        normalize(event.get("event", "")).upper() in breaker_labels
+        for event in events
+    )
 
 
 def empty_mode() -> dict[str, Any]:
