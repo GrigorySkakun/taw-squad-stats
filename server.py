@@ -521,16 +521,24 @@ def analyze_flight(
                 "sortieUrl": flight["url"],
             })
         if ev_name == "DESTROYED":
+            event_dt = parse_date(event.get("date", "")) or datetime.fromisoformat(flight["date"])
             cat = classify_ground(event)
             if cat:
                 # Category rows display object counts (one ship = one ship).
                 # TAW Ground Kills and bally scoring apply the separate GK weight.
                 counts[cat] += 1
-                ground_events.append({
-                    "object": normalize(event.get("object", "Unknown target")),
-                    "type": normalize(event.get("type", "")),
-                    "category": cat,
-                })
+            # Keep the individual log event for the pilot's destruction history,
+            # including targets that are not mapped to a legacy summary category.
+            ground_events.append({
+                "date": event_dt.strftime("%d.%m.%Y"),
+                "time": event_dt.strftime("%H:%M:%S"),
+                "event": "DESTROYED",
+                "object": normalize(event.get("object", "")) or "Неизвестная техника",
+                "type": normalize(event.get("type", "")),
+                "category": cat or "",
+                "mission": flight.get("mission", ""),
+                "sortieUrl": flight.get("url", ""),
+            })
         if "PILOT WAS DAMAGED" in ev_name and any(t in (event.get("type", "") + " " + event.get("object", "")).upper() for t in ("PLANE", "AA", "ARTY", "ARTILLERY", " AT ")):
             wounds = 1
 
@@ -611,7 +619,7 @@ def empty_mode() -> dict[str, Any]:
     return {"score": 0, "scoreRaw": 0.0, "sorties": 0, "planes": 0, "ground": 0, "wounds": 0,
             "fighter": 0, "attack": 0, "bomber": 0,
             "typeCounts": {k: 0 for k in ["heavyTank", "mediumTank", "lightTank", "aa", "groundedPlanes", "trains", "artillery", "vehicles", "ships", "otherGround"]},
-            "airVictories": []}
+            "airVictories": [], "groundEvents": []}
 
 
 def summarize_flights(analyzed: list[dict[str, Any]]) -> dict[str, Any]:
@@ -628,8 +636,10 @@ def summarize_flights(analyzed: list[dict[str, Any]]) -> dict[str, Any]:
         for key in summary["typeCounts"]:
             summary["typeCounts"][key] += item["counts"][key]
         summary["airVictories"].extend(item["victories"])
+        summary["groundEvents"].extend(item.get("groundEvents", []))
     summary["score"] = round_bally(summary["scoreRaw"])
     summary["airVictories"].sort(key=lambda v: (v.get("date", ""), v.get("time", "")), reverse=True)
+    summary["groundEvents"].sort(key=lambda v: (v.get("date", ""), v.get("time", "")), reverse=True)
     return summary
 
 
