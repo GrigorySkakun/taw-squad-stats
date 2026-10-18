@@ -181,9 +181,9 @@ class GroundCountingTests(unittest.TestCase):
 
         self.assertTrue(result["pilotExit"])
         self.assertTrue(result["groundMismatch"])
-        # The mismatch can exist in the raw log, but warning generation must skip
-        # this sortie because PILOT EXIT results are not credited by TAW.
-        self.assertFalse(result["groundMismatch"] and not result["pilotExit"])
+        # The mismatch can exist in the raw log, but no warning should be emitted
+        # because PILOT EXIT results are not credited by TAW.
+        self.assertIsNone(server.ground_mismatch_warning("72AG_lnf", flight, result))
 
     def test_pilot_exit_results_are_excluded_without_splitting_streak(self):
         def item(date, score, pilot_exit=False, breaker=False):
