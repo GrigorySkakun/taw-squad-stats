@@ -667,7 +667,9 @@ def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
     if not saw_first_break:
         first_segment = list(segment)
     current = summarize_flights(first_segment)
-    best_segment = max(segments, key=lambda seg: sum(x["scoreRaw"] for x in seg), default=[])
+    # "Best streak" means the longest air-kill streak, not the highest bally score.
+    # Use bally score only as a tie-breaker between segments with equal air kills.
+    best_segment = max(segments, key=lambda seg: (sum(x["planes"] for x in seg), sum(x["scoreRaw"] for x in seg)), default=[])
     best = summarize_flights(best_segment)
     return {"current": current, "best": best, "campaign": campaign}
 
