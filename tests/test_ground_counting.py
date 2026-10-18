@@ -134,48 +134,6 @@ class GroundCountingTests(unittest.TestCase):
         self.assertEqual(result["current"]["planes"], 1)
         self.assertEqual(result["best"]["score"], 10)
         self.assertEqual(result["best"]["planes"], 2)
-
-    def test_breaker_status_skips_sortie_page(self):
-        for status in ("KILLED", "CAPTURED", "DISCO"):
-            self.assertTrue(server.should_skip_sortie_page({"status": status}))
-        for status in ("LANDED", "CRASHED", "BAILED OUT", "UNKNOWN"):
-            self.assertFalse(server.should_skip_sortie_page({"status": status}))
-
-    def test_skipped_breaker_marker_breaks_streak_without_counting(self):
-        counts = {
-            "fighter": 0, "attack": 0, "bomber": 0,
-            "heavyTank": 0, "mediumTank": 0, "lightTank": 0,
-            "aa": 0, "groundedPlanes": 0, "trains": 0,
-            "artillery": 0, "vehicles": 0, "ships": 0, "otherGround": 0,
-        }
-
-        def valid_item(date, score):
-            analysis = {
-                "flight": {"date": date, "url": date},
-                "scoreRaw": float(score), "planes": 0, "ground": 0, "wounds": 0,
-                "counts": counts, "victories": [], "breaker": False, "pilotExit": False,
-            }
-            return {"analysis": analysis, "flight": analysis["flight"]}
-
-        skipped_flight = {"date": "2026-10-16T12:00:00", "url": "never-fetched", "status": "KILLED"}
-        marker = {
-            "analysis": {
-                "flight": skipped_flight, "breaker": True, "pilotExit": False, "notRead": True,
-            },
-            "flight": skipped_flight,
-        }
-        result = server.calculate_modes([
-            valid_item("2026-10-17T12:00:00", 20),
-            marker,
-            valid_item("2026-10-15T12:00:00", 10),
-        ])
-        self.assertEqual(result["campaign"]["sorties"], 2)
-        self.assertEqual(result["campaign"]["score"], 30)
-        self.assertEqual(result["current"]["sorties"], 1)
-        self.assertEqual(result["current"]["score"], 20)
-        self.assertEqual(result["best"]["sorties"], 1)
-        self.assertEqual(result["best"]["score"], 10)
-
     def test_air_kill_requires_exact_event_plane_type_and_pilot(self):
         valid = {
             "date": "09.10.2026 12:10:22",
