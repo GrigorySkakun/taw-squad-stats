@@ -423,9 +423,9 @@ def has_any(value: str, choices: list[str]) -> bool:
 
 
 def is_air_kill(event: dict[str, str]) -> bool:
-    # Exclude the opponent-side marker: only SHOT DOWN represents the user's kill.
-    value = event.get("event", "").upper()
-    return "SHOT DOWN" in value and "WAS SHOT DOWN" not in value
+    # TAW's event column uses the exact label SHOT DOWN for a kill by this pilot.
+    # WAS SHOT DOWN is the opposite event and must never count as a victory.
+    return normalize(event.get("event", "")).upper() == "SHOT DOWN"
 
 
 def classify_plane(plane: str) -> list[str]:
@@ -490,6 +490,11 @@ def analyze_flight(
     official_ground_kills: int | None = None,
 ) -> dict[str, Any]:
     counts = {k: 0 for k in ["fighter", "attack", "bomber", "heavyTank", "mediumTank", "lightTank", "aa", "groundedPlanes", "trains", "artillery", "vehicles", "ships", "otherGround"]}
+    # TAW's official sortie total is authoritative. If it is explicitly zero,
+    # do not surface DESTROYED events as ground targets in the dashboard.
+    if official_ground_kills is None:
+        official_ground_kills = int(flight.get("groundKillsOfficial", 0) or 0)
+    official_ground_kills = max(0, int(official_ground_kills or 0))
     victories = []
     ground_events = []
     wounds = 0
@@ -507,7 +512,7 @@ def analyze_flight(
                 "mission": flight.get("mission", ""),
                 "sortieUrl": flight["url"],
             })
-        if ev_name == "DESTROYED":
+        if ev_name == "DESTROYED" and official_ground_kills > 0:
             cat = classify_ground(event)
             if cat:
                 # Category rows display object counts (one ship = one ship).
@@ -523,9 +528,6 @@ def analyze_flight(
 
     # Prefer the sortie page's official Ground Kills number, then fall back to
     # the same value parsed from the pilot's sortie list.
-    if official_ground_kills is None:
-        official_ground_kills = int(flight.get("groundKillsOfficial", 0) or 0)
-    official_ground_kills = max(0, int(official_ground_kills or 0))
     classified_ground = sum(counts[key] * GROUND_KILL_WEIGHTS[key] for key in GROUND_CATEGORY_KEYS)
     counts["otherGround"] = max(0, official_ground_kills - classified_ground)
     ground_mismatch = classified_ground > official_ground_kills
@@ -665,7 +667,9 @@ def calculate_modes(flights: list[dict[str, Any]]) -> dict[str, Any]:
     if not saw_first_break:
         first_segment = list(segment)
     current = summarize_flights(first_segment)
-    best_segment = max(segments, key=lambda seg: sum(x["scoreRaw"] for x in seg), default=[])
+    # "Best streak" means the longest air-kill streak, not the highest bally score.
+    # Use bally score only as a tie-breaker between segments with equal air kills.
+    best_segment = max(segments, key=lambda seg: (sum(x["planes"] for x in seg), sum(x["scoreRaw"] for x in seg)), default=[])
     best = summarize_flights(best_segment)
     return {"current": current, "best": best, "campaign": campaign}
 
@@ -728,29 +732,26 @@ def build_snapshot(force: bool = False, squad_url: str | None = None):
                     warnings.append(f"{member['name']}: ошибка профиля")
                 with STATE_LOCK:
                     STATE["profileProcessed"] += 1
-        years = []
-        for flights in profile_results.values():
-            for flight in flights:
-                dt = datetime.fromisoformat(flight["date"])
-                years.append(dt.year)
-        if not years:
-            raise RuntimeError("Не удалось определить даты вылетов в профилях TAW; расчёт кампании невозможен.")
-        season_year = max(years)
-        filtered_profiles: dict[str, list[dict[str, Any]]] = {}
-        for member in members:
-            name = member["name"]
-            filtered_profiles[name] = [f for f in profile_results.get(name, []) if datetime.fromisoformat(f["date"]).year == season_year]
-        total_sorties = sum(len(v) for v in filtered_profiles.values())
-        update_state(phase="sorties", message=f"Загружаю журналы вылетов за {season_year} год…", campaignYear=season_year,
+        # Use every distinct sortie link found on each live TAW pilot profile.
+        # A calendar year is not a reliable campaign boundary and must not discard
+        # older or newer sorties. parse_profile already de-duplicates repeated links.
+        if not any(profile_results.values()):
+            raise RuntimeError("Не удалось найти ссылки на вылеты в профилях TAW.")
+        all_profiles: dict[str, list[dict[str, Any]]] = {
+            member["name"]: profile_results.get(member["name"], [])
+            for member in members
+        }
+        total_sorties = sum(len(v) for v in all_profiles.values())
+        update_state(phase="sorties", message="Загружаю все найденные журналы вылетов TAW…", campaignYear=None,
                      processed=0, total=total_sorties, profileTotal=len(members), profileProcessed=len(members), warnings=warnings)
 
         analyses_by_pilot: dict[str, list[dict[str, Any]]] = {m["name"]: [] for m in members}
-        expected_by_pilot = {m["name"]: len(filtered_profiles.get(m["name"], [])) for m in members}
+        expected_by_pilot = {m["name"]: len(all_profiles.get(m["name"], [])) for m in members}
         completed_by_pilot = {m["name"]: 0 for m in members}
         member_by_name = {m["name"]: m for m in members}
         task_list: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for member in members:
-            for flight in filtered_profiles.get(member["name"], []):
+            for flight in all_profiles.get(member["name"], []):
                 task_list.append((member, flight))
 
         # Pilots with no sorties during the latest detected year can be shown immediately.
@@ -826,7 +827,7 @@ def build_snapshot(force: bool = False, squad_url: str | None = None):
         if failures:
             warnings.append(f"Не удалось прочитать {failures} журнал(ов). В расчётах таких вылетов данные могут быть неполными.")
         update_state(running=False, phase="complete", message="Данные TAW загружены", pilots=results,
-                     campaignYear=season_year, mapName=map_name, updatedAt=datetime.now().astimezone().isoformat(timespec="seconds"),
+                     campaignYear=None, mapName=map_name, updatedAt=datetime.now().astimezone().isoformat(timespec="seconds"),
                      warnings=warnings[:30], error=None)
     except Exception as exc:
         update_state(running=False, phase="error", message="Не удалось загрузить данные TAW", error=str(exc),
